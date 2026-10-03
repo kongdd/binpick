@@ -1,10 +1,10 @@
 use crate::{
-    app::App,
-    artifacts::{extract, safe_archive_path, verify_checksum},
-    catalog,
-    files::validate_name,
-    model::Manifest,
+    manifest,
+    manifest::Manifest,
+    package::App,
     platform::{numeric_version, render, select_asset_for},
+    storage::validate_name,
+    storage::{extract, safe_archive_path, verify_checksum},
 };
 use reqwest::blocking::Client;
 use sha2::{Digest, Sha256};
@@ -32,8 +32,8 @@ fn bundled_manifests() {
         client: Client::new(),
     };
     app.init().unwrap();
-    assert_eq!(app.names().unwrap().len(), catalog::BUNDLED.len());
-    for &(filename, _) in catalog::BUNDLED {
+    assert_eq!(app.names().unwrap().len(), manifest::BUNDLED.len());
+    for &(filename, _) in manifest::BUNDLED {
         let name = Path::new(filename).file_stem().unwrap().to_str().unwrap();
         let m = app.manifest(name).unwrap();
         assert!(!m.assets.is_empty(), "{filename}: assets cannot be empty");

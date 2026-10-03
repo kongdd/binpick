@@ -144,17 +144,13 @@ Yazi 的部分功能仍需要系统提供外部工具，本项目不自动安装
 
 ## 代码结构
 
-`main.rs` 只保留模块声明和错误处理入口；模块间使用显式导入，不依赖 main 中的共享导入。
+按业务边界保留 6 个功能文件，避免过度拆分；模块间使用显式导入。
 
-- `cli.rs`：命令参数、运行入口和命令分发
-- `model.rs`：清单、安装状态、GitHub Release 数据模型
-- `app.rs`：数据目录与本地清单/状态读取
-- `catalog.rs` + `build.rs`：自动发现并嵌入 YAML 清单，补充默认清单
-- `github.rs`：GitHub API 请求
-- `installer.rs`：安装、升级与卸载
+- `main.rs`：入口、命令参数与命令分发
+- `package.rs`：本地清单/状态读取、GitHub 请求、安装、更新与卸载
+- `manifest.rs`：数据模型、内置清单与初始化；`build.rs` 自动扫描 YAML
 - `platform.rs`：OS/CPU/libc 适配与资源模板
-- `files.rs`：安全命名、原子写入与命令入口发布
-- `artifacts.rs`：校验与安全提取可执行文件
+- `storage.rs`：安全命名、文件发布、归档提取与校验
 - `maintenance.rs`：安装代、回滚、清理、锁定与检查
 - `unit_tests.rs`、`tests/`：通用单元测试和端到端测试
 

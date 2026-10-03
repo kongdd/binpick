@@ -1,4 +1,4 @@
-use crate::model::{Asset, Manifest};
+use crate::manifest::{Asset, Manifest};
 use anyhow::{bail, Context, Result};
 
 pub(crate) fn platform() -> Result<String> {
