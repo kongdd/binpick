@@ -1,0 +1,31 @@
+name: bun
+version: v1.4.2
+source:
+  github: oven-sh/bun
+assets:
+  linux-amd64-gnu:
+    file: bun-linux-x64.zip
+    checksum: SHASUMS256.txt
+  linux-arm64-gnu:
+    file: bun-linux-aarch64.zip
+    checksum: SHASUMS256.txt
+  linux-amd64-musl:
+    file: bun-linux-x64.zip
+    checksum: SHASUMS256.txt
+  linux-arm64-musl:
+    file: bun-linux-aarch64.zip
+    checksum: SHASUMS256.txt
+  darwin-amd64:
+    file: bun-darwin-x64.zip
+    checksum: SHASUMS256.txt
+  darwin-arm64:
+    file: bun-darwin-aarch64.zip
+    checksum: SHASUMS256.txt
+  windows-amd64:
+    file: bun-windows-x64.zip
+    checksum: SHASUMS256.txt
+  windows-arm64:
+    file: bun-windows-aarch64.zip
+    checksum: SHASUMS256.txt
+executables:
+  - bun
