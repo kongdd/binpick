@@ -26,6 +26,37 @@ fn disconnected_clients_do_not_stop_server() {
 }
 
 #[test]
+fn server_waits_for_fragmented_request_headers() {
+    use std::{
+        io::{Read, Write},
+        net::TcpStream,
+        thread,
+        time::Duration,
+    };
+
+    let f = Fixture::new(false);
+    let cmd = f.cmd();
+    let url = cmd
+        .get_envs()
+        .find(|(key, _)| *key == "BINPICK_GITHUB_API")
+        .and_then(|(_, value)| value)
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let mut stream = TcpStream::connect(url.strip_prefix("http://").unwrap()).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    stream.write_all(b"GET /download/v1 HTTP/1.1\r\n").unwrap();
+    thread::sleep(Duration::from_millis(100));
+    stream.write_all(b"Host: localhost\r\n\r\n").unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.ends_with("/download/v1"));
+}
+
+#[test]
 fn install_update_remove() {
     let f = Fixture::new(false);
     f.cmd().args(["install", "demo"]).assert().success();

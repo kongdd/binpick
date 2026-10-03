@@ -35,6 +35,12 @@ impl Server {
                     }
                     Err(e) => panic!("{e}"),
                 };
+                // Windows accepted sockets inherit the listener's nonblocking
+                // mode. Only accept() should poll; request I/O must block.
+                stream.set_nonblocking(false).unwrap();
+                stream
+                    .set_write_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(5)))
                     .unwrap();
