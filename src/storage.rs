@@ -109,19 +109,20 @@ pub(crate) fn safe_archive_path(path: &Path) -> Result<()> {
 
 pub(crate) fn copy_binary(
     reader: &mut impl Read,
-    name: &str,
+    path: &str,
     wanted: &[String],
     output: &Path,
 ) -> Result<()> {
-    if !wanted.iter().any(|s| s == name) {
+    let Some(name) = wanted.iter().find(|w| *w == path || path_matches(w, path)) else {
         return Ok(());
-    }
-    let target = output.join(name);
+    };
+    let basename = name.rsplit(['/', '\\']).next().unwrap_or(name.as_str());
+    let target = output.join(basename);
     let mut file = fs::OpenOptions::new()
         .create_new(true)
         .write(true)
         .open(&target)
-        .with_context(|| format!("duplicate executable in archive: {name}"))?;
+        .with_context(|| format!("duplicate executable in archive: {basename}"))?;
     io::copy(reader, &mut file)?;
     #[cfg(unix)]
     {
@@ -129,6 +130,14 @@ pub(crate) fn copy_binary(
         file.set_permissions(fs::Permissions::from_mode(0o755))?;
     }
     Ok(())
+}
+
+fn path_matches(want: &str, path: &str) -> bool {
+    let Some(basename) = path.rsplit(['/', '\\']).next() else {
+        return false;
+    };
+    let want_basename = want.rsplit(['/', '\\']).next().unwrap_or(want);
+    basename == want_basename
 }
 
 pub(crate) fn extract(
@@ -140,6 +149,21 @@ pub(crate) fn extract(
     match format {
         "tar.gz" => {
             let decoder = flate2::read::GzDecoder::new(fs::File::open(archive)?);
+            let mut tar = tar::Archive::new(decoder);
+            for entry in tar.entries()? {
+                let mut entry = entry?;
+                let path = entry.path()?.into_owned();
+                safe_archive_path(&path)?;
+                if !entry.header().entry_type().is_file() {
+                    continue;
+                }
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    copy_binary(&mut entry, name, wanted, output)?;
+                }
+            }
+        }
+        "tar.xz" => {
+            let decoder = xz2::read::XzDecoder::new(fs::File::open(archive)?);
             let mut tar = tar::Archive::new(decoder);
             for entry in tar.entries()? {
                 let mut entry = entry?;

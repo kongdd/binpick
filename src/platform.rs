@@ -107,3 +107,9 @@ pub(crate) fn render(template: &str, tag: &str) -> String {
         .replace("{tag}", tag)
         .replace("{version}", tag.strip_prefix('v').unwrap_or(tag))
 }
+
+pub(crate) fn render_with(template: &str, tag: &str, platform: &str, format: &str) -> String {
+    render(template, tag)
+        .replace("{platform}", platform)
+        .replace("{format}", format)
+}

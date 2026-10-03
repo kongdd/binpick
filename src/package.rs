@@ -1,6 +1,6 @@
 use crate::{
     manifest::{self, Installed, Manifest, Release},
-    platform::{binary_name, render, select_asset},
+    platform::{binary_name, render, render_with, select_asset},
     storage::{
         atomic_write, extract, remove_file_if_exists, validate_name, validate_version,
         verify_checksum,
@@ -62,9 +62,22 @@ impl App {
             bail!("manifest name must match filename: {name}");
         }
         validate_version(&m.version)?;
-        let repo: Vec<_> = m.source.github.split('/').collect();
-        if repo.len() != 2 || repo.iter().any(|p| validate_name(p).is_err()) {
-            bail!("github must be owner/repository");
+        match (&m.source.github, &m.source.url) {
+            (Some(github), None) => {
+                let repo: Vec<_> = github.split('/').collect();
+                if repo.len() != 2 || repo.iter().any(|p| validate_name(p).is_err()) {
+                    bail!("github must be owner/repository");
+                }
+            }
+            (None, Some(url)) => {
+                let parsed = reqwest::Url::parse(url)
+                    .with_context(|| format!("invalid url source: {url}"))?;
+                if !matches!(parsed.scheme(), "http" | "https") {
+                    bail!("url source must be http(s): {url}");
+                }
+            }
+            (None, None) => bail!("manifest must declare source.github or source.url"),
+            (Some(_), Some(_)) => bail!("source.github and source.url are mutually exclusive"),
         }
         if m.executables.is_empty() {
             bail!("executables cannot be empty");
@@ -117,7 +130,7 @@ impl App {
                 .path_segments_mut()
                 .map_err(|_| anyhow::anyhow!("invalid API URL"))?;
             segments.pop_if_empty().push("repos");
-            for part in m.source.github.split('/') {
+            for part in m.source.github.as_deref().unwrap().split('/') {
                 segments.push(part);
             }
             segments.push("releases");
@@ -153,22 +166,35 @@ impl App {
             println!("{name}: pinned ({}), skipped", m.version);
             return Ok(());
         }
-        let release = self.github(&m, true)?;
-        let old = m.version.clone();
-        m.version = release.tag_name.clone();
+        if m.source.github.is_some() {
+            let release = self.github(&m, true)?;
+            let old = m.version.clone();
+            m.version = release.tag_name.clone();
+            if let Some(state) = self.installed(name)? {
+                if state.version != m.version {
+                    self.install(&m, Some(&release))?;
+                }
+            }
+            if old != m.version {
+                atomic_write(
+                    &self.manifest_path(name)?,
+                    serde_yaml::to_string(&m)?.as_bytes(),
+                )?;
+                println!("{name}: YAML {old} -> {}", m.version);
+            } else {
+                println!("{name}: up to date ({})", m.version);
+            }
+            return Ok(());
+        }
+        // URL sources use the version already recorded in the manifest;
+        // discovery requires the host's own latest-version endpoint, which
+        // is out of scope for this MVP.
         if let Some(state) = self.installed(name)? {
             if state.version != m.version {
-                self.install(&m, Some(&release))?;
+                self.install(&m, None)?;
+            } else {
+                println!("{name}: up to date ({})", m.version);
             }
-        }
-        if old != m.version {
-            atomic_write(
-                &self.manifest_path(name)?,
-                serde_yaml::to_string(&m)?.as_bytes(),
-            )?;
-            println!("{name}: YAML {old} -> {}", m.version);
-        } else {
-            println!("{name}: up to date ({})", m.version);
         }
         Ok(())
     }
@@ -185,58 +211,84 @@ impl App {
         let owned_release;
         let release = match release {
             Some(r) => r,
-            None => {
-                owned_release = self.github(m, false)?;
-                &owned_release
-            }
+            None => match &m.source.github {
+                Some(_) => {
+                    owned_release = self.github(m, false)?;
+                    &owned_release
+                }
+                None => {
+                    owned_release = Release {
+                        tag_name: m.version.clone(),
+                        draft: false,
+                        prerelease: false,
+                        assets: Vec::new(),
+                    };
+                    &owned_release
+                }
+            },
         };
         let filename = render(&asset.file, &m.version);
-        let url = release
-            .assets
-            .iter()
-            .find(|a| a.name == filename)
-            .with_context(|| format!("release {} has no asset {filename}", m.version))?;
+        let download_url =
+            if let Some(release_asset) = release.assets.iter().find(|a| a.name == filename) {
+                release_asset.browser_download_url.clone()
+            } else {
+                let template = asset
+                    .url
+                    .as_ref()
+                    .or(m.source.url.as_ref())
+                    .with_context(|| format!("release {} has no asset {filename}", m.version))?;
+                render_with(
+                    template,
+                    &m.version,
+                    &platform,
+                    asset.format.as_deref().unwrap_or("raw"),
+                )
+            };
+        let checksum_url = if asset.checksum.is_some() {
+            if let Some(release_asset) = asset.checksum.as_ref().and_then(|name| {
+                let name = render(name, &m.version);
+                release.assets.iter().find(|a| a.name == name)
+            }) {
+                Some(release_asset.browser_download_url.clone())
+            } else {
+            asset
+                .checksum_url
+                .as_ref()
+                .map(|template| render(template, &m.version))
+        }
+        } else {
+            None
+        };
         println!("{}: downloading {filename} ({platform})", m.name);
         let temp = tempfile::tempdir_in(self.root.join("packages"))?;
         let archive = temp.path().join("download");
         let mut out = fs::File::create(&archive)?;
-        let mut response = self
-            .client
-            .get(&url.browser_download_url)
-            .send()?
-            .error_for_status()?;
+        let mut response = self.client.get(&download_url).send()?.error_for_status()?;
         io::copy(&mut response, &mut out)?;
         out.sync_all()?;
         drop(out);
-        if let Some(checksum) = &asset.checksum {
-            let checksum = render(checksum, &m.version);
-            let checksum_url = release
-                .assets
-                .iter()
-                .find(|a| a.name == checksum)
-                .with_context(|| format!("missing checksum asset {checksum}"))?;
-            let text = self
-                .client
-                .get(&checksum_url.browser_download_url)
-                .send()?
-                .error_for_status()?
-                .text()?;
+        if asset.checksum.is_some() {
+            let url = checksum_url
+                .context("checksum URL could not be resolved from GitHub assets or url template")?;
+            let text = self.client.get(&url).send()?.error_for_status()?.text()?;
             verify_checksum(&archive, &filename, &text)?;
         } else {
             eprintln!("warning: {} has no upstream checksum configured", m.name);
         }
         let extracted = temp.path().join("extracted");
         fs::create_dir(&extracted)?;
-        let format = asset.format.as_deref().unwrap_or_else(|| {
+        let format_name = asset.format.as_deref().unwrap_or_else(|| {
             if filename.ends_with(".tar.gz") || filename.ends_with(".tgz") {
                 "tar.gz"
+            } else if filename.ends_with(".tar.xz") || filename.ends_with(".txz") {
+                "tar.xz"
             } else if filename.ends_with(".zip") {
                 "zip"
             } else {
                 "raw"
             }
         });
-        extract(&archive, format, &binaries, &extracted)?;
+        extract(&archive, format_name, &binaries, &extracted)?;
         let package_dir = self.root.join("packages").join(&m.name);
         fs::create_dir_all(&package_dir)?;
         // Unique generation directory: never overwrite binaries currently in use.

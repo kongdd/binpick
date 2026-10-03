@@ -23,7 +23,10 @@ fn is_false(value: &bool) -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Source {
-    pub(crate) github: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) github: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,6 +38,14 @@ pub(crate) struct Asset {
     /// Release asset containing sha256sum-style checksums
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) checksum: Option<String>,
+    /// URL template for the checksum file when source is not a GitHub release
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) checksum_url: Option<String>,
+    /// Per-asset URL template override when the source.url pattern needs
+    /// platform-specific fragments (e.g. node uses `linux-x64` while binpick
+    /// calls the platform `linux-amd64-gnu`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) url: Option<String>,
     /// Minimum glibc version; selects musl fallback when unavailable/too old
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) min_glibc: Option<String>,

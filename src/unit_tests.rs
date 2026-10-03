@@ -49,6 +49,18 @@ fn bundled_manifests() {
     }
 }
 #[test]
+fn url_source_manifest() {
+    let m: Manifest = serde_yaml::from_str(
+        "name: demo\nversion: v1\nsource:\n  url: https://example.test/dist/{version}/file.tar.gz\nexecutables: [demo]\nassets:\n  linux-amd64-gnu:\n    file: file.tar.gz\n    format: tar.gz\n",
+    )
+    .unwrap();
+    assert_eq!(
+        m.source.url.as_deref(),
+        Some("https://example.test/dist/{version}/file.tar.gz")
+    );
+}
+
+#[test]
 fn static_linux_assets() {
     let m: Manifest = serde_yaml::from_str("name: demo\nversion: v1\nsource:\n  github: test/demo\nexecutables: [demo]\nassets:\n  linux-amd64-musl:\n    file: demo-linux-x86_64\n    format: raw\n  linux-arm64-musl:\n    file: demo-linux-aarch64\n    format: raw\n").unwrap();
     for arch in ["amd64", "arm64"] {
