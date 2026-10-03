@@ -11,7 +11,7 @@ cd binpick
 cargo install --path . --locked
 binpick init
 # 将 init 输出的 bin 目录加入 PATH
-binpick install lazygit yazi gh
+binpick install lazygit yazi gh herdr
 binpick list
 binpick update
 binpick update lazygit
@@ -38,7 +38,9 @@ root/
   .lock               # 防止并发修改
 ```
 
-第一次运行会复制内置的 lazygit/yazi/gh 清单，不覆盖已有同名 YAML。
+第一次运行会复制内置的 lazygit/yazi/gh/herdr 清单，不覆盖已有同名 YAML。
+Herdr 的 Linux 资源为静态 musl 构建，GNU 系统也可自动选择；上游目前未提供
+Windows ARM64 发行资源或独立 checksum 文件，缺少 checksum 时会明确警告。
 要直接管理本仓库的 YAML：
 
 ```bash

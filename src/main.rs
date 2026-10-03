@@ -248,6 +248,7 @@ impl App {
             ("lazygit", include_str!("../manifests/lazygit.yaml")),
             ("yazi", include_str!("../manifests/yazi.yaml")),
             ("gh", include_str!("../manifests/gh.yaml")),
+            ("herdr", include_str!("../manifests/herdr.yaml")),
         ] {
             let path = self.manifests.join(format!("{name}.yaml"));
             if !path.exists() {
@@ -794,11 +795,25 @@ mod tests {
             include_str!("../manifests/lazygit.yaml"),
             include_str!("../manifests/yazi.yaml"),
             include_str!("../manifests/gh.yaml"),
+            include_str!("../manifests/herdr.yaml"),
         ] {
             let m: Manifest = serde_yaml::from_str(yaml).unwrap();
             validate_name(&m.name).unwrap();
             assert!(!m.executables.is_empty());
         }
+    }
+    #[test]
+    fn herdr_uses_static_linux_assets() {
+        let m: Manifest = serde_yaml::from_str(include_str!("../manifests/herdr.yaml")).unwrap();
+        for arch in ["amd64", "arm64"] {
+            let key = format!("linux-{arch}-musl");
+            let (selected, asset) =
+                select_asset_for(&m, &format!("linux-{arch}-gnu"), Some("2.36")).unwrap();
+            assert_eq!(selected, key);
+            assert_eq!(asset.format.as_deref(), Some("raw"));
+            assert_eq!(select_asset_for(&m, &key, None).unwrap().0, key);
+        }
+        assert!(select_asset_for(&m, "windows-arm64", None).is_err());
     }
     #[test]
     fn glibc_fallback() {

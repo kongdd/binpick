@@ -1,0 +1,21 @@
+name: herdr
+version: v0.9.3
+source:
+  github: herdrdev/herdr
+assets:
+  linux-amd64-musl:
+    file: herdr-linux-x86_64
+    format: raw
+  linux-arm64-musl:
+    file: herdr-linux-aarch64
+    format: raw
+  darwin-amd64:
+    file: herdr-macos-x86_64
+    format: raw
+  darwin-arm64:
+    file: herdr-macos-aarch64
+    format: raw
+  windows-amd64:
+    file: herdr-windows-x86_64.zip
+executables:
+  - herdr
