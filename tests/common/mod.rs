@@ -41,11 +41,13 @@ impl Server {
                 let mut request = Vec::new();
                 let mut buffer = [0; 1024];
                 while !request.windows(4).any(|b| b == b"\r\n\r\n") {
-                    let n = stream.read(&mut buffer).unwrap();
-                    if n == 0 {
-                        break;
+                    match stream.read(&mut buffer) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => request.extend_from_slice(&buffer[..n]),
                     }
-                    request.extend_from_slice(&buffer[..n]);
+                }
+                if !request.windows(4).any(|b| b == b"\r\n\r\n") {
+                    continue;
                 }
                 let request = String::from_utf8_lossy(&request);
                 let path = request.split_whitespace().nth(1).unwrap_or("");
@@ -64,8 +66,11 @@ impl Server {
                 } else {
                     ("404 Not Found", Vec::new())
                 };
-                write!(stream, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).unwrap();
-                stream.write_all(&body).unwrap();
+                let mut response = format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).into_bytes();
+                response.extend_from_slice(&body);
+                // Clients may close/reset the connection before the response is sent.
+                // A disconnected client must not kill the fixture server.
+                let _ = stream.write_all(&response);
             }
         });
         Self {
@@ -78,7 +83,11 @@ impl Server {
 impl Drop for Server {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
-        self.thread.take().unwrap().join().unwrap();
+        let result = self.thread.take().unwrap().join();
+        // Preserve server failures, but never double-panic during test unwinding.
+        if !thread::panicking() {
+            result.unwrap();
+        }
     }
 }
 

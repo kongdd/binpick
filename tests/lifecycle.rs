@@ -3,6 +3,29 @@ use common::{Fixture, Server};
 use std::fs;
 
 #[test]
+fn disconnected_clients_do_not_stop_server() {
+    use std::{io::Write, net::TcpStream};
+
+    let f = Fixture::new(false);
+    // Obtain the fixture URL from the command's environment without exposing
+    // additional server internals.
+    let cmd = f.cmd();
+    let url = cmd
+        .get_envs()
+        .find(|(key, _)| *key == "BINPICK_GITHUB_API")
+        .and_then(|(_, value)| value)
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let address = url.strip_prefix("http://").unwrap();
+    drop(TcpStream::connect(address).unwrap());
+    let mut stream = TcpStream::connect(address).unwrap();
+    stream.write_all(b"GET /download/v1 HTTP/1.1\r\n").unwrap();
+    drop(stream);
+    f.cmd().args(["install", "demo"]).assert().success();
+}
+
+#[test]
 fn install_update_remove() {
     let f = Fixture::new(false);
     f.cmd().args(["install", "demo"]).assert().success();
