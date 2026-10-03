@@ -251,11 +251,11 @@ impl App {
             }) {
                 Some(release_asset.browser_download_url.clone())
             } else {
-            asset
-                .checksum_url
-                .as_ref()
-                .map(|template| render(template, &m.version))
-        }
+                asset
+                    .checksum_url
+                    .as_ref()
+                    .map(|template| render(template, &m.version))
+            }
         } else {
             None
         };

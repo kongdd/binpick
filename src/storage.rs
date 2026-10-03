@@ -197,7 +197,7 @@ pub(crate) fn extract(
             }
             copy_binary(&mut fs::File::open(archive)?, &wanted[0], wanted, output)?;
         }
-        other => bail!("unsupported archive format: {other}; use zip, tar.gz or raw"),
+        other => bail!("unsupported archive format: {other}; use zip, tar.gz, tar.xz or raw"),
     }
     for exe in wanted {
         if !output.join(exe).is_file() {

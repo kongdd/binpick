@@ -13,12 +13,34 @@ use std::{
 };
 
 pub(crate) struct Server {
-    url: String,
+    pub(crate) url: String,
     stop: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<()>>,
 }
 impl Server {
     pub(crate) fn start(fail_download: bool) -> Self {
+        Self::with_handler(move |path, base| {
+            if path.starts_with("/repos/test/demo/releases/") {
+                let version = if path.ends_with("latest") { "v2" } else { "v1" };
+                ("200 OK", json!({
+                    "tag_name": version, "draft": false, "prerelease": false,
+                    "assets": [{"name": "demo.bin", "browser_download_url": format!("{base}/download/{version}")}]
+                }).to_string().into_bytes())
+            } else if path.starts_with("/download/") {
+                if fail_download {
+                    ("500 Internal Server Error", b"failure".to_vec())
+                } else {
+                    ("200 OK", path.as_bytes().to_vec())
+                }
+            } else {
+                ("404 Not Found", Vec::new())
+            }
+        })
+    }
+
+    pub(crate) fn with_handler(
+        handler: impl Fn(&str, &str) -> (&'static str, Vec<u8>) + Send + 'static,
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
@@ -57,21 +79,7 @@ impl Server {
                 }
                 let request = String::from_utf8_lossy(&request);
                 let path = request.split_whitespace().nth(1).unwrap_or("");
-                let (status, body) = if path.starts_with("/repos/test/demo/releases/") {
-                    let version = if path.ends_with("latest") { "v2" } else { "v1" };
-                    ("200 OK", json!({
-                        "tag_name": version, "draft": false, "prerelease": false,
-                        "assets": [{"name": "demo.bin", "browser_download_url": format!("{base}/download/{version}")}]
-                    }).to_string().into_bytes())
-                } else if path.starts_with("/download/") {
-                    if fail_download {
-                        ("500 Internal Server Error", b"failure".to_vec())
-                    } else {
-                        ("200 OK", path.as_bytes().to_vec())
-                    }
-                } else {
-                    ("404 Not Found", Vec::new())
-                };
+                let (status, body) = handler(path, &base);
                 let mut response = format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).into_bytes();
                 response.extend_from_slice(&body);
                 // Clients may close/reset the connection before the response is sent.

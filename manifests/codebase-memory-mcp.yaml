@@ -1,0 +1,39 @@
+name: codebase-memory-mcp
+version: v0.11.0
+source:
+  github: DeusData/codebase-memory-mcp
+assets:
+  linux-amd64-gnu:
+    file: codebase-memory-mcp-linux-amd64-portable.tar.gz
+    format: tar.gz
+    checksum: checksums.txt
+  linux-arm64-gnu:
+    file: codebase-memory-mcp-linux-arm64-portable.tar.gz
+    format: tar.gz
+    checksum: checksums.txt
+  linux-amd64-musl:
+    file: codebase-memory-mcp-linux-amd64-portable.tar.gz
+    format: tar.gz
+    checksum: checksums.txt
+  linux-arm64-musl:
+    file: codebase-memory-mcp-linux-arm64-portable.tar.gz
+    format: tar.gz
+    checksum: checksums.txt
+  darwin-amd64:
+    file: codebase-memory-mcp-darwin-amd64.tar.gz
+    format: tar.gz
+    checksum: checksums.txt
+  darwin-arm64:
+    file: codebase-memory-mcp-darwin-arm64.tar.gz
+    format: tar.gz
+    checksum: checksums.txt
+  windows-amd64:
+    file: codebase-memory-mcp-windows-amd64.zip
+    format: zip
+    checksum: checksums.txt
+  windows-arm64:
+    file: codebase-memory-mcp-windows-arm64.zip
+    format: zip
+    checksum: checksums.txt
+executables:
+  - codebase-memory-mcp

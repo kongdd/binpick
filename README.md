@@ -1,7 +1,8 @@
 # binpick
 
 用 Rust 实现的跨平台预编译可执行文件管理器。不编译源码、不安装系统依赖。
-每个软件一份 YAML；`update` 查询 GitHub 最新稳定 Release，自动更新版本号。
+每个软件一份 YAML；支持 GitHub Release 和直接 URL 来源。
+GitHub 来源的 `update` 查询最新稳定 Release；URL 来源使用 YAML 中手动指定的版本。
 
 ## 快速开始
 
@@ -24,6 +25,7 @@ binpick remove lazygit
 - 未安装：只更新 YAML，不安装软件。
 - 下载、校验、解压失败：不推进 YAML 版本，旧程序仍然可用。
 - 已经是最新版：不重复下载。
+- URL 来源不自动发现最新版：先手动修改 YAML 的 `version`，再执行 `update` 升级已安装软件。
 
 默认数据目录为用户主目录下的 `~/.binpick`，可执行文件入口为 `~/.binpick/bin`。
 `binpick init` 会输出实际路径；Windows 使用对应用户主目录。
@@ -38,7 +40,14 @@ root/
   .lock               # 防止并发修改
 ```
 
-启动时会补充二进制中内置的清单，不覆盖已有同名 YAML。目前提供 lazygit/yazi/gh/herdr。
+启动时会补充二进制中内置的清单，不覆盖已有同名 YAML。目前提供
+lazygit/yazi/gh/herdr/bun/node/codebase-memory-mcp。
+codebase-memory-mcp 的 Linux 平台统一使用上游 fully-static portable 包，兼容 GNU 和 musl；
+macOS/Windows 使用对应架构原生包，所有平台均校验 `checksums.txt`。
+`binpick install codebase-memory-mcp` 仅安装程序，不自动注册 MCP 客户端或运行上游安装脚本。
+更新使用 `binpick update codebase-memory-mcp`，不依赖未被提取的上游安装脚本。
+Node 的 GNU 构建要求 glibc >= 2.28；x64 musl 使用独立发行包，ARM64 musl 暂不支持。
+升级 binpick 不会覆盖已经初始化的旧版 `node.yaml`；如需修正旧清单，请手动同步仓库版本。
 构建脚本自动扫描仓库的 `manifests/*.yaml` 并生成内置目录；新增、删除或修改清单
 会触发重新构建，无需在 Rust 代码中逐个注册软件，测试也会自动检查全部内置清单。
 Herdr 的 Linux 资源为静态 musl 构建，GNU 系统也可自动选择；上游目前未提供
@@ -105,13 +114,18 @@ executables:
   - mytool
 ```
 
-- `version`：完整 GitHub tag，保留前导 v。
+- `version`：完整上游版本/tag，保留前导 v。
+- `source`：`github: owner/repository` 与 `url: https://...` 二选一；URL 是默认下载地址模板。
+- `assets.<平台>.url`：可选，默认下载 URL 的平台专用模板覆盖。
+  Node 的目录与文件名均保留 v，因此清单使用 `{tag}` 而非 `{version}`。
+- URL 下载模板还支持 `{platform}` 和 `{format}`；平台命名不同的上游应配置平台专用 URL。
 - `pinned`：可选布尔值，默认 false；true 时 update 跳过。
 - `{tag}`：完整 tag；`{version}`：去掉一个前导 v。
-- `file`：GitHub Release asset 的精确名称模板。
-- `format`：可选，支持 `zip`、`tar.gz`、`raw`；默认按文件名推断。
+- `file`：发行文件的精确名称模板，用于 GitHub asset 查找及校验文件匹配。
+- `format`：可选，支持 `zip`、`tar.gz`、`tar.xz`、`raw`；默认按文件名推断。
 - `checksum`：可选，Release 内的校验文件名称模板，支持 sha256sum 格式。
-  缺少此配置时明确警告，不声称已校验。
+  URL 来源同时配置 `checksum_url` 指定校验文件 URL 模板；它支持 `{tag}` / `{version}`。
+  缺少 `checksum` 时明确警告，不声称已校验；配置了校验但无法解析地址时安装失败。
 - `executables`：压缩包中的可执行文件 basename，支持嵌套目录和多个程序。
   Windows 自动补 `.exe`；同名文件出现多次会报错，不猜选哪一个。
 - 未知字段报错，避免拼写错误被静默忽略。
@@ -164,4 +178,6 @@ cargo clippy --all-targets -- -D warnings
 端到端测试使用本地 HTTP fixture，不依赖 GitHub，覆盖安装、更新、卸载、
 未安装时仅更新 YAML、失败时保持旧版本、命令冲突、离线回滚、清理保护、
 版本锁定、旧状态迁移、篡改检测及切换失败后的快照恢复。
+Node 回归测试使用严格的本地发行路径，覆盖版本模板、校验 URL、嵌套归档提取、
+校验失败不发布及 URL 升级失败保留旧安装；平台测试拒绝不支持的 ARM64 musl。
 内置清单来自实现时核对过的上游发行文件；后续上游改名需要调整 YAML。

@@ -61,6 +61,86 @@ fn url_source_manifest() {
 }
 
 #[test]
+fn codebase_memory_platforms() {
+    let m: Manifest =
+        serde_yaml::from_str(include_str!("../manifests/codebase-memory-mcp.yaml")).unwrap();
+    assert_eq!(m.name, "codebase-memory-mcp");
+    assert_eq!(
+        m.source.github.as_deref(),
+        Some("DeusData/codebase-memory-mcp")
+    );
+    assert_eq!(m.executables, ["codebase-memory-mcp"]);
+    let expected = [
+        ("linux-amd64-gnu", "linux-amd64-portable", "tar.gz"),
+        ("linux-arm64-gnu", "linux-arm64-portable", "tar.gz"),
+        ("linux-amd64-musl", "linux-amd64-portable", "tar.gz"),
+        ("linux-arm64-musl", "linux-arm64-portable", "tar.gz"),
+        ("darwin-amd64", "darwin-amd64", "tar.gz"),
+        ("darwin-arm64", "darwin-arm64", "tar.gz"),
+        ("windows-amd64", "windows-amd64", "zip"),
+        ("windows-arm64", "windows-arm64", "zip"),
+    ];
+    assert_eq!(m.assets.len(), expected.len());
+    for (platform, target, format) in expected {
+        // Fully static Linux builds must work even without a detected glibc.
+        let (selected, asset) = select_asset_for(&m, platform, None).unwrap();
+        assert_eq!(selected, platform);
+        assert_eq!(
+            render(&asset.file, &m.version),
+            format!("codebase-memory-mcp-{target}.{format}")
+        );
+        assert_eq!(asset.format.as_deref(), Some(format));
+        assert_eq!(asset.checksum.as_deref(), Some("checksums.txt"));
+    }
+}
+
+#[test]
+fn node_templates_and_platforms() {
+    let m: Manifest = serde_yaml::from_str(include_str!("../manifests/node.yaml")).unwrap();
+    assert_eq!(
+        render(m.source.url.as_deref().unwrap(), &m.version),
+        format!(
+            "https://nodejs.org/dist/{0}/node-{0}-linux-x64.tar.xz",
+            m.version
+        )
+    );
+    let expected = [
+        ("linux-amd64-gnu", "linux-x64", "tar.xz"),
+        ("linux-arm64-gnu", "linux-arm64", "tar.xz"),
+        ("linux-amd64-musl", "linux-x64-musl", "tar.xz"),
+        ("darwin-amd64", "darwin-x64", "tar.gz"),
+        ("darwin-arm64", "darwin-arm64", "tar.gz"),
+        ("windows-amd64", "win-x64", "zip"),
+        ("windows-arm64", "win-arm64", "zip"),
+    ];
+    assert_eq!(m.assets.len(), expected.len());
+    for (platform, suffix, format) in expected {
+        let (selected, asset) = select_asset_for(&m, platform, Some("2.28")).unwrap();
+        assert_eq!(selected, platform);
+        let filename = format!("node-{}-{suffix}.{format}", m.version);
+        assert_eq!(render(&asset.file, &m.version), filename);
+        assert_eq!(asset.format.as_deref(), Some(format));
+        assert_eq!(
+            render(asset.url.as_deref().unwrap(), &m.version),
+            format!("https://nodejs.org/dist/{}/{filename}", m.version)
+        );
+        assert_eq!(asset.checksum.as_deref(), Some("SHASUMS256.txt"));
+        assert_eq!(
+            render(asset.checksum_url.as_deref().unwrap(), &m.version),
+            format!("https://nodejs.org/dist/{}/SHASUMS256.txt", m.version)
+        );
+    }
+    assert_eq!(
+        select_asset_for(&m, "linux-amd64-gnu", Some("2.27"))
+            .unwrap()
+            .0,
+        "linux-amd64-musl"
+    );
+    assert!(select_asset_for(&m, "linux-arm64-gnu", Some("2.27")).is_err());
+    assert!(select_asset_for(&m, "linux-arm64-musl", None).is_err());
+}
+
+#[test]
 fn static_linux_assets() {
     let m: Manifest = serde_yaml::from_str("name: demo\nversion: v1\nsource:\n  github: test/demo\nexecutables: [demo]\nassets:\n  linux-amd64-musl:\n    file: demo-linux-x86_64\n    format: raw\n  linux-arm64-musl:\n    file: demo-linux-aarch64\n    format: raw\n").unwrap();
     for arch in ["amd64", "arm64"] {
