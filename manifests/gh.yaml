@@ -1,0 +1,25 @@
+name: gh
+version: v2.102.0
+source:
+  github: cli/cli
+assets:
+  linux-amd64-gnu:
+    file: gh_{version}_linux_amd64.tar.gz
+    checksum: gh_{version}_checksums.txt
+  linux-arm64-gnu:
+    file: gh_{version}_linux_arm64.tar.gz
+    checksum: gh_{version}_checksums.txt
+  darwin-amd64:
+    file: gh_{version}_macOS_amd64.zip
+    checksum: gh_{version}_checksums.txt
+  darwin-arm64:
+    file: gh_{version}_macOS_arm64.zip
+    checksum: gh_{version}_checksums.txt
+  windows-amd64:
+    file: gh_{version}_windows_amd64.zip
+    checksum: gh_{version}_checksums.txt
+  windows-arm64:
+    file: gh_{version}_windows_arm64.zip
+    checksum: gh_{version}_checksums.txt
+executables:
+  - gh

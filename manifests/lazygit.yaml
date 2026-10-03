@@ -1,0 +1,25 @@
+name: lazygit
+version: v0.65.1
+source:
+  github: jesseduffield/lazygit
+assets:
+  linux-amd64-gnu:
+    file: lazygit_{version}_linux_x86_64.tar.gz
+    checksum: checksums.txt
+  linux-arm64-gnu:
+    file: lazygit_{version}_linux_arm64.tar.gz
+    checksum: checksums.txt
+  darwin-amd64:
+    file: lazygit_{version}_darwin_x86_64.tar.gz
+    checksum: checksums.txt
+  darwin-arm64:
+    file: lazygit_{version}_darwin_arm64.tar.gz
+    checksum: checksums.txt
+  windows-amd64:
+    file: lazygit_{version}_windows_x86_64.zip
+    checksum: checksums.txt
+  windows-arm64:
+    file: lazygit_{version}_windows_arm64.zip
+    checksum: checksums.txt
+executables:
+  - lazygit

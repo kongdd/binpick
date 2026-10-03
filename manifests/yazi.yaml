@@ -1,0 +1,25 @@
+name: yazi
+version: v26.9.1
+source:
+  github: sxyazi/yazi
+assets:
+  linux-amd64-gnu:
+    file: yazi-x86_64-unknown-linux-gnu.zip
+    min_glibc: '2.39'
+  linux-arm64-gnu:
+    file: yazi-aarch64-unknown-linux-gnu.zip
+  linux-amd64-musl:
+    file: yazi-x86_64-unknown-linux-musl.zip
+  linux-arm64-musl:
+    file: yazi-aarch64-unknown-linux-musl.zip
+  darwin-amd64:
+    file: yazi-x86_64-apple-darwin.zip
+  darwin-arm64:
+    file: yazi-aarch64-apple-darwin.zip
+  windows-amd64:
+    file: yazi-x86_64-pc-windows-msvc.zip
+  windows-arm64:
+    file: yazi-aarch64-pc-windows-msvc.zip
+executables:
+  - yazi
+  - ya
