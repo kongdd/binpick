@@ -48,3 +48,23 @@ fn rejects_unmanaged_binary_collision() {
     f.cmd().args(["install", "demo"]).assert().failure();
     assert_eq!(fs::read(f.binary()).unwrap(), b"unmanaged");
 }
+
+#[test]
+fn runtime_manifest_needs_no_code_registration() {
+    let f = Fixture::new(false);
+    let manifests = f.dir.path().join("manifests");
+    let yaml = fs::read_to_string(manifests.join("demo.yaml")).unwrap();
+    fs::write(
+        manifests.join("new-tool.yaml"),
+        yaml.replacen("name: demo", "name: new-tool", 1),
+    )
+    .unwrap();
+    f.cmd().args(["install", "new-tool"]).assert().success();
+    assert_eq!(fs::read(f.binary()).unwrap(), b"/download/v1");
+    f.cmd().args(["update", "new-tool"]).assert().success();
+    let state: serde_json::Value =
+        serde_json::from_slice(&fs::read(f.dir.path().join("data/state/new-tool.json")).unwrap())
+            .unwrap();
+    assert_eq!(state["name"], "new-tool");
+    assert_eq!(state["version"], "v2");
+}

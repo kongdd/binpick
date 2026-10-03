@@ -38,7 +38,9 @@ root/
   .lock               # 防止并发修改
 ```
 
-第一次运行会复制内置的 lazygit/yazi/gh/herdr 清单，不覆盖已有同名 YAML。
+启动时会补充二进制中内置的清单，不覆盖已有同名 YAML。目前提供 lazygit/yazi/gh/herdr。
+构建脚本自动扫描仓库的 `manifests/*.yaml` 并生成内置目录；新增、删除或修改清单
+会触发重新构建，无需在 Rust 代码中逐个注册软件，测试也会自动检查全部内置清单。
 Herdr 的 Linux 资源为静态 musl 构建，GNU 系统也可自动选择；上游目前未提供
 Windows ARM64 发行资源或独立 checksum 文件，缺少 checksum 时会明确警告。
 要直接管理本仓库的 YAML：
@@ -78,7 +80,13 @@ GC 永远优先保留当前安装代，即使当前版本更旧；keep 最小为
 
 ## 新增软件
 
-在 manifests 目录添加 `mytool.yaml`，文件名必须与 name 一致：
+新增软件只需一份 YAML，文件名必须与 name 一致：
+
+- 加入内置清单：在仓库的 `manifests/` 中添加 `mytool.yaml`，重新构建或安装 binpick。
+- 本机立即使用：放入 `~/.binpick/manifests/mytool.yaml`，无需改代码或重新编译。
+- 自定义目录：使用 `--manifests /path/to/manifests`。
+
+例如：
 
 ```yaml
 name: mytool
@@ -133,6 +141,22 @@ Yazi 的部分功能仍需要系统提供外部工具，本项目不自动安装
   **尚无持久化崩溃恢复日志**，进程被强杀、断电或恢复本身失败仍可能部分更新。
 - 安装代保留到 gc 或卸载，rollback 不需要重新下载。
 - Windows 正在运行的程序可能阻止替换，需要退出程序后重试。
+
+## 代码结构
+
+`main.rs` 只保留模块声明和错误处理入口；模块间使用显式导入，不依赖 main 中的共享导入。
+
+- `cli.rs`：命令参数、运行入口和命令分发
+- `model.rs`：清单、安装状态、GitHub Release 数据模型
+- `app.rs`：数据目录与本地清单/状态读取
+- `catalog.rs` + `build.rs`：自动发现并嵌入 YAML 清单，补充默认清单
+- `github.rs`：GitHub API 请求
+- `installer.rs`：安装、升级与卸载
+- `platform.rs`：OS/CPU/libc 适配与资源模板
+- `files.rs`：安全命名、原子写入与命令入口发布
+- `artifacts.rs`：校验与安全提取可执行文件
+- `maintenance.rs`：安装代、回滚、清理、锁定与检查
+- `unit_tests.rs`、`tests/`：通用单元测试和端到端测试
 
 ## 测试
 
