@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repository="${PREX_REPOSITORY:-kongdd/binpick}"
+repository="${PREX_REPOSITORY:-kongdd/prex}"
 version=latest
 install_dir="${PREX_ROOT:-$HOME/.prex}/bin"
 platform=""
@@ -13,7 +13,7 @@ Usage: bash install.sh [--version v0.1.0] [--dir DIR] [--platform PLATFORM]
 
 Defaults: latest release; ${PREX_ROOT:-$HOME/.prex}/bin.
 Linux uses the portable static musl build; macOS uses its native architecture.
-PREX_REPOSITORY overrides the GitHub owner/repository (default: kongdd/binpick).
+PREX_REPOSITORY overrides the GitHub owner/repository (default: kongdd/prex).
 EOF
 }
 fail() { printf 'error: %s\n' "$*" >&2; exit 1; }

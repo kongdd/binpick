@@ -7,8 +7,8 @@ GitHub 来源自动查询最新稳定 Release；URL 来源通过可选的 `check
 
 ## 安装预编译版本
 
-从 [Releases](https://github.com/kongdd/binpick/releases) 下载，不需要 Rust。
-首个 prex 版本为 `v0.1.0`，远端仓库暂时仍叫 `kongdd/binpick`。
+从 [Releases](https://github.com/kongdd/prex/releases) 下载，不需要 Rust。
+首个 prex 版本为 `v0.1.0`。
 
 ### Linux / macOS（Bash）
 
@@ -16,7 +16,7 @@ GitHub 来源自动查询最新稳定 Release；URL 来源通过可选的 `check
 `~/.prex/bin`（设置 `PREX_ROOT` 时安装到该目录的 `bin/`）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/kongdd/binpick/main/scripts/install.sh -o install-prex.sh
+curl -fsSL https://raw.githubusercontent.com/kongdd/prex/main/scripts/install.sh -o install-prex.sh
 # 可先阅读 install-prex.sh
 bash install-prex.sh
 export PATH="$HOME/.prex/bin:$PATH"  # 建议也写入 ~/.bashrc 或 ~/.zshrc
@@ -42,7 +42,7 @@ Linux 默认使用完全静态的 musl 构建；在 GNU 系统上运行时，pre
 `$HOME\.prex\bin`。先阅读下载的脚本；以下执行策略只影响此次子进程，不更改全局策略：
 
 ```powershell
-Invoke-WebRequest -Uri https://raw.githubusercontent.com/kongdd/binpick/main/scripts/install.ps1 -OutFile install-prex.ps1
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/kongdd/prex/main/scripts/install.ps1 -OutFile install-prex.ps1
 # 可先用 Get-Content .\install-prex.ps1 阅读脚本
 powershell -ExecutionPolicy Bypass -File .\install-prex.ps1 -AddToPath
 # 重新打开终端后：
@@ -76,7 +76,7 @@ Windows 中正在运行的 prex 可能阻止替换，先退出相关进程再重
 ## 从源码安装及快速开始
 
 ```bash
-git clone https://github.com/kongdd/binpick.git prex
+git clone https://github.com/kongdd/prex.git
 cd prex
 cargo install --path . --locked
 prex init
@@ -182,7 +182,7 @@ prex doctor
 
 prex 兼容原 `.binpick-generation.json` 元数据；新安装代使用 `.prex-generation.json`。
 旧 Unix 符号链接可能包含绝对路径，不要直接重命名旧数据目录。
-GitHub 仓库目前仍使用原 URL；此处改名没有自动重命名远端仓库或卸载旧命令。
+GitHub 仓库为 `kongdd/prex`；旧命令不会自动卸载。
 
 ## 回滚与维护
 

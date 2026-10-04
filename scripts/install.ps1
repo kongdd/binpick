@@ -2,7 +2,7 @@
 param(
     [string]$Version = 'latest',
     [string]$InstallDir = '',
-    [string]$Repository = 'kongdd/binpick',
+    [string]$Repository = 'kongdd/prex',
     [switch]$AddToPath,
     [switch]$Help
 )
