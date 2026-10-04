@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Package standalone prex binaries and generate sha256sum-compatible checksums."""
+"""Prepare uncompressed prex executables and SHA-256 checksums."""
 
 import argparse
 import hashlib
 from pathlib import Path
 import re
-import tarfile
-import zipfile
+import shutil
 
 TARGETS = {
     "x86_64-unknown-linux-gnu": ("linux-amd64-gnu", "ubuntu-22.04"),
@@ -21,52 +20,38 @@ TARGETS = {
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def package(version, target, binary, output, source=ROOT):
-    if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?", version):
+def filename(version, platform):
+    return f"prex-{version}-{platform}" + (".exe" if platform.startswith("windows-") else "")
+
+
+def package(version, target, binary, output):
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise ValueError("version must be a safe semver without the leading v")
-    platform, _ = TARGETS[target]
-    windows = platform.startswith("windows-")
-    executable = "prex.exe" if windows else "prex"
-    files = [(Path(binary), executable), (source / "LICENSE", "LICENSE"),
-             (source / "README.md", "README.md")]
-    for path, _ in files:
-        if not path.is_file() or path.is_symlink():
-            raise ValueError(f"missing or non-regular release input: {path}")
-    output = Path(output)
+    binary, output = Path(binary), Path(output)
+    if not binary.is_file() or binary.is_symlink():
+        raise ValueError(f"missing or non-regular executable: {binary}")
     output.mkdir(parents=True, exist_ok=True)
-    extension = "zip" if windows else "tar.gz"
-    archive = output / f"prex-{version}-{platform}.{extension}"
-    if windows:
-        with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as writer:
-            for path, name in files:
-                writer.write(path, arcname=name)
-    else:
-        with tarfile.open(archive, "w:gz") as writer:
-            for path, name in files:
-                info = writer.gettarinfo(str(path), arcname=name)
-                info.mode = 0o755 if name == executable else 0o644
-                info.uid = info.gid = 0
-                info.uname = info.gname = ""
-                with path.open("rb") as reader:
-                    writer.addfile(info, reader)
-    return archive
+    destination = output / filename(version, TARGETS[target][0])
+    shutil.copyfile(binary, destination)
+    destination.chmod(0o755)
+    return destination
 
 
 def checksums(directory):
     directory = Path(directory)
-    archives = sorted(list(directory.glob("prex-*.tar.gz")) + list(directory.glob("prex-*.zip")))
-    if not archives:
-        raise ValueError("no release archives found")
+    files = sorted(p for p in directory.iterdir() if p.is_file() and p.name != "SHA256SUMS.txt")
+    if not files:
+        raise ValueError("no release files found")
     lines = []
-    for archive in archives:
+    for path in files:
         digest = hashlib.sha256()
-        with archive.open("rb") as reader:
+        with path.open("rb") as reader:
             for chunk in iter(lambda: reader.read(1024 * 1024), b""):
                 digest.update(chunk)
-        lines.append(f"{digest.hexdigest()}  {archive.name}\n")
-    path = directory / "SHA256SUMS.txt"
-    path.write_text("".join(lines), encoding="utf-8", newline="\n")
-    return path
+        lines.append(f"{digest.hexdigest()}  {path.name}\n")
+    output = directory / "SHA256SUMS.txt"
+    output.write_text("".join(lines), encoding="utf-8", newline="\n")
+    return output
 
 
 def main():

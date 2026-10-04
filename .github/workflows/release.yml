@@ -28,7 +28,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       matrix: ${{ steps.version.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.RELEASE_TAG }}
       - uses: dtolnay/rust-toolchain@stable
@@ -72,7 +72,7 @@ jobs:
     env:
       MACOSX_DEPLOYMENT_TARGET: '11.0'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.RELEASE_TAG }}
       - uses: dtolnay/rust-toolchain@stable
@@ -87,7 +87,7 @@ jobs:
           key="${{ matrix.target }}"
           echo "CC_${key//-/_}=musl-gcc" >> "$GITHUB_ENV"
           key="${key^^}"
-          echo "CARGO_TARGET_${key//-/_}_LINKER=musl-gcc" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_${key//-/_}_LINKER=rust-lld" >> "$GITHUB_ENV"
       - name: Statically link the Windows C runtime
         if: runner.os == 'Windows'
         run: echo 'RUSTFLAGS=-C target-feature=+crt-static' >> "$GITHUB_ENV"
@@ -111,12 +111,12 @@ jobs:
               exit 1
             fi
           fi
-      - name: Package
+      - name: Prepare executable
         run: python scripts/package_release.py package --version '${{ needs.validate.outputs.version }}' --target '${{ matrix.target }}'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
-          name: prex-${{ matrix.platform }}
           path: dist/prex-*
+          archive: false
           if-no-files-found: error
 
   publish:
@@ -125,10 +125,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.RELEASE_TAG }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: prex-*
           merge-multiple: true
@@ -142,13 +142,13 @@ jobs:
           from pathlib import Path
           import sys
           sys.path.insert(0, 'scripts')
-          from package_release import TARGETS, checksums
-          expected = {
-              f"prex-{os.environ['VERSION']}-{platform}.{'zip' if platform.startswith('windows-') else 'tar.gz'}"
-              for platform, _ in TARGETS.values()
-          }
+          from package_release import TARGETS, checksums, filename
+          expected = {filename(os.environ['VERSION'], platform) for platform, _ in TARGETS.values()}
           actual = {path.name for path in Path('dist').iterdir()}
           assert actual == expected, f'incomplete release: {actual ^ expected}'
+          import shutil
+          for path in ['LICENSE', 'scripts/install.sh', 'scripts/install.ps1']:
+              shutil.copyfile(path, Path('dist') / Path(path).name)
           checksums('dist')
           PY
           cd dist && sha256sum --check SHA256SUMS.txt

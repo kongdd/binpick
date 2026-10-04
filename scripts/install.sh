@@ -9,7 +9,7 @@ platform=""
 usage() {
     cat <<'EOF'
 Install prex from GitHub Releases after SHA-256 verification.
-Usage: bash install.sh [--version v0.1.0] [--dir DIR] [--platform PLATFORM]
+Usage: bash install.sh [--version v0.1.1] [--dir DIR] [--platform PLATFORM]
 
 Defaults: latest release; ${PREX_ROOT:-$HOME/.prex}/bin.
 Linux uses the portable static musl build; macOS uses its native architecture.
@@ -33,7 +33,7 @@ while (($#)); do
 done
 [[ "$repository" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || fail 'invalid PREX_REPOSITORY'
 [[ -n "$install_dir" ]] || fail 'installation directory cannot be empty'
-for command in curl tar mktemp; do
+for command in curl mktemp; do
     command -v "$command" >/dev/null || fail "missing required command: $command"
 done
 if command -v sha256sum >/dev/null; then
@@ -70,7 +70,7 @@ else
     version="v${version#v}"
 fi
 [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "invalid release version: $version"
-asset="prex-${version#v}-$platform.tar.gz"
+asset="prex-${version#v}-$platform"
 work=$(mktemp -d)
 staged=""
 cleanup() {
@@ -90,11 +90,9 @@ else
 fi
 actual="${actual%% *}"
 [[ "$actual" == "$expected" ]] || fail 'SHA-256 mismatch; nothing was installed'
-tar -xzf "$work/$asset" -C "$work" prex
-[[ -f "$work/prex" && ! -L "$work/prex" ]] || fail 'release does not contain a regular prex executable'
 mkdir -p -- "$install_dir"
 staged=$(mktemp "$install_dir/.prex-install.XXXXXX")
-cp "$work/prex" "$staged"
+cp "$work/$asset" "$staged"
 chmod 755 "$staged"
 mv -f -- "$staged" "$install_dir/prex"
 staged=""

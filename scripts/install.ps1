@@ -12,7 +12,7 @@ Set-StrictMode -Version Latest
 
 if ($Help) {
     Write-Output 'Install prex after SHA-256 verification. Requires PowerShell 5.1+ on Windows.'
-    Write-Output '.\install.ps1 [-Version v0.1.0] [-InstallDir DIR] [-AddToPath]'
+    Write-Output '.\install.ps1 [-Version v0.1.1] [-InstallDir DIR] [-AddToPath]'
     Write-Output 'Defaults: latest release; $HOME\.prex\bin (or $env:PREX_ROOT\bin).'
     return
 }
@@ -52,34 +52,28 @@ if ($Version -eq 'latest') {
 if ($Version -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') {
     throw "Invalid release version: $Version"
 }
-$archiveName = "prex-$($Version.Substring(1))-$platform.zip"
+$assetName = "prex-$($Version.Substring(1))-$platform.exe"
 $base = "https://github.com/$Repository/releases/download/$Version"
 $work = Join-Path ([IO.Path]::GetTempPath()) ('prex-install-' + [Guid]::NewGuid().ToString('N'))
 $staged = $null
 New-Item -ItemType Directory -Path $work | Out-Null
 try {
     Write-Output "Downloading prex $Version ($platform)..."
-    $archive = Join-Path $work $archiveName
+    $binary = Join-Path $work $assetName
     $sums = Join-Path $work 'SHA256SUMS.txt'
-    Invoke-WebRequest -Uri "$base/$archiveName" -Headers $headers -UseBasicParsing -OutFile $archive
+    Invoke-WebRequest -Uri "$base/$assetName" -Headers $headers -UseBasicParsing -OutFile $binary
     Invoke-WebRequest -Uri "$base/SHA256SUMS.txt" -Headers $headers -UseBasicParsing -OutFile $sums
     $expected = @(
         foreach ($line in Get-Content -LiteralPath $sums) {
             $match = [regex]::Match($line, '^([a-fA-F0-9]{64})\s+\*?(.+)$')
-            if ($match.Success -and $match.Groups[2].Value -ceq $archiveName) {
+            if ($match.Success -and $match.Groups[2].Value -ceq $assetName) {
                 $match.Groups[1].Value
             }
         }
     )
-    if ($expected.Count -ne 1) { throw "Missing or ambiguous checksum for $archiveName" }
-    $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+    if ($expected.Count -ne 1) { throw "Missing or ambiguous checksum for $assetName" }
+    $actual = (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash
     if ($actual -ine $expected[0]) { throw 'SHA-256 mismatch; nothing was installed' }
-    $extracted = Join-Path $work 'extracted'
-    Expand-Archive -LiteralPath $archive -DestinationPath $extracted
-    $binary = Join-Path $extracted 'prex.exe'
-    if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
-        throw 'Release does not contain prex.exe'
-    }
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
     $destination = Join-Path $InstallDir 'prex.exe'
     $staged = Join-Path $InstallDir ('.prex-install-' + [Guid]::NewGuid().ToString('N') + '.exe')

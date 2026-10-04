@@ -8,7 +8,7 @@ GitHub 来源自动查询最新稳定 Release；URL 来源通过可选的 `check
 ## 安装预编译版本
 
 从 [Releases](https://github.com/kongdd/prex/releases) 下载，不需要 Rust。
-首个 prex 版本为 `v0.1.0`。
+首个公开 prex 版本为 `v0.1.1`。
 
 ### Linux / macOS（Bash）
 
@@ -27,8 +27,8 @@ prex init
 指定版本、位置或 GNU 构建：
 
 ```bash
-bash install-prex.sh --version v0.1.0
-bash install-prex.sh --version v0.1.0 --dir "$HOME/.local/bin"
+bash install-prex.sh --version v0.1.1
+bash install-prex.sh --version v0.1.1 --dir "$HOME/.local/bin"
 bash install-prex.sh --platform linux-amd64-gnu
 ```
 
@@ -54,23 +54,26 @@ prex init
 指定版本或位置：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install-prex.ps1 -Version v0.1.0 -InstallDir "$HOME\tools\prex" -AddToPath
+powershell -ExecutionPolicy Bypass -File .\install-prex.ps1 -Version v0.1.1 -InstallDir "$HOME\tools\prex" -AddToPath
 ```
 
 Windows 中正在运行的 prex 可能阻止替换，先退出相关进程再重试。
 
 ### 手动下载
 
-| 平台 | 发行包后缀 | 说明 |
-|---|---|---|
-| Linux amd64 GNU | `linux-amd64-gnu.tar.gz` | glibc >= 2.35 |
-| Linux arm64 GNU | `linux-arm64-gnu.tar.gz` | glibc >= 2.39 |
-| Linux amd64 / arm64 musl | `linux-<架构>-musl.tar.gz` | 完全静态，GNU/Alpine 均可用，推荐 |
-| macOS Intel / Apple Silicon | `darwin-amd64.tar.gz` / `darwin-arm64.tar.gz` | 构建最低目标 macOS 11，测试于 macOS 15 |
-| Windows amd64 / arm64 | `windows-<架构>.zip` | 静态链接 MSVC C 运行库 |
+Release 直接提供可执行文件，不使用压缩包。
 
-例如 `prex-0.1.0-linux-amd64-musl.tar.gz`。发行包只含 `prex`（Windows 为 `prex.exe`）、
-`LICENSE`、`README.md`；从同一 Release 下载 `SHA256SUMS.txt` 验证后解压，放入 PATH。
+| 平台 | 文件名后缀 | 说明 |
+|---|---|---|
+| Linux amd64 GNU | `linux-amd64-gnu` | glibc >= 2.35 |
+| Linux arm64 GNU | `linux-arm64-gnu` | glibc >= 2.39 |
+| Linux amd64 / arm64 musl | `linux-<架构>-musl` | 完全静态，GNU/Alpine 均可用，推荐 |
+| macOS Intel / Apple Silicon | `darwin-amd64` / `darwin-arm64` | 构建最低目标 macOS 11，测试于 macOS 15 |
+| Windows amd64 / arm64 | `windows-<架构>.exe` | 静态链接 MSVC C 运行库 |
+
+例如 `prex-0.1.1-linux-amd64-musl`。从同一 Release 下载 `SHA256SUMS.txt` 校验；
+Linux/macOS 使用 `chmod +x <文件>`，重命名为 `prex` 并放入 PATH；Windows 重命名为
+`prex.exe`。Release 另提供 `LICENSE`、`install.sh`、`install.ps1`，无需解压。
 当前预编译版本已包含初始 YAML 快照，支持通过 `PREX_MANIFESTS` 使用独立清单目录。
 
 ## 从源码安装及快速开始
@@ -331,14 +334,14 @@ update 不读取/迁移安装状态；upgrade 不改写清单、不重新发现�
 ## 发布
 
 `.github/workflows/release.yml` 在推送 `v*` 标签时构建八个原生目标，并对每个目标执行
-测试、Clippy、release 构建及版本烟雾检查；musl 包额外检查不存在动态加载器。
-标签必须与 `Cargo.toml` 版本一致。全部目标成功后才汇总打包、生成 `SHA256SUMS.txt`
+测试、Clippy、release 构建及版本烟雾检查；musl 二进制额外检查不存在动态加载器。
+标签必须与 `Cargo.toml` 版本一致。全部目标成功后才汇总原始可执行文件、生成 `SHA256SUMS.txt`
 并公开 Release，不会把缺少平台的部分构建当作完整发行版。
 
 ```bash
 # 先提交并推送代码，确认 CI 成功，再创建对应版本标签
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 工作流也支持手动输入已经存在的版本标签，重试同一版本的构建和上传。
