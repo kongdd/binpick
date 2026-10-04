@@ -1,0 +1,164 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to build (must match Cargo.toml)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+  CARGO_TERM_COLOR: always
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      matrix: ${{ steps.version.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Check tag and package version
+        id: version
+        run: |
+          python3 - <<'PY'
+          import json, os, re, sys
+          from pathlib import Path
+          sys.path.insert(0, 'scripts')
+          from package_release import TARGETS
+          toml = Path('Cargo.toml').read_text()
+          name = re.search(r'^name = "([^"]+)"', toml, re.M).group(1)
+          version = re.search(r'^version = "([^"]+)"', toml, re.M).group(1)
+          assert name == 'prex', name
+          assert re.fullmatch(r'\d+\.\d+\.\d+', version), version
+          assert os.environ['RELEASE_TAG'] == f'v{version}', 'tag must match Cargo.toml'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'version={version}\n')
+              matrix = [dict(target=target, platform=platform, os=runner)
+                        for target, (platform, runner) in TARGETS.items()]
+              output.write('matrix=' + json.dumps(dict(include=matrix)) + '\n')
+          PY
+      - run: cargo fmt --check
+      - run: python3 -m unittest discover -s tests -p 'test_*.py'
+      - run: bash -n scripts/install.sh && bash scripts/install.sh --help
+
+  build:
+    needs: validate
+    name: Build ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.validate.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          components: clippy
+      - name: Configure musl C compiler
+        if: contains(matrix.target, 'musl')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          key="${{ matrix.target }}"
+          echo "CC_${key//-/_}=musl-gcc" >> "$GITHUB_ENV"
+          key="${key^^}"
+          echo "CARGO_TARGET_${key//-/_}_LINKER=musl-gcc" >> "$GITHUB_ENV"
+      - name: Statically link the Windows C runtime
+        if: runner.os == 'Windows'
+        run: echo 'RUSTFLAGS=-C target-feature=+crt-static' >> "$GITHUB_ENV"
+      - name: Test target
+        run: cargo test --locked --target '${{ matrix.target }}'
+      - name: Clippy
+        run: cargo clippy --locked --target '${{ matrix.target }}' --all-targets -- -D warnings
+      - name: Build release
+        run: cargo build --locked --release --target '${{ matrix.target }}'
+      - name: Verify release binary
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          binary="target/${{ matrix.target }}/release/prex"
+          if [[ '${{ runner.os }}' == 'Windows' ]]; then binary+='.exe'; fi
+          test "$("$binary" --version)" = "prex $VERSION"
+          "$binary" --help
+          if [[ '${{ matrix.target }}' == *musl ]]; then
+            if readelf -l "$binary" | grep -q INTERP; then
+              echo 'musl binary must not require a dynamic loader' >&2
+              exit 1
+            fi
+          fi
+      - name: Package
+        run: python scripts/package_release.py package --version '${{ needs.validate.outputs.version }}' --target '${{ matrix.target }}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prex-${{ matrix.platform }}
+          path: dist/prex-*
+          if-no-files-found: error
+
+  publish:
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: prex-*
+          merge-multiple: true
+          path: dist
+      - name: Verify complete release and create checksums
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import sys
+          sys.path.insert(0, 'scripts')
+          from package_release import TARGETS, checksums
+          expected = {
+              f"prex-{os.environ['VERSION']}-{platform}.{'zip' if platform.startswith('windows-') else 'tar.gz'}"
+              for platform, _ in TARGETS.values()
+          }
+          actual = {path.name for path in Path('dist').iterdir()}
+          assert actual == expected, f'incomplete release: {actual ^ expected}'
+          checksums('dist')
+          PY
+          cd dist && sha256sum --check SHA256SUMS.txt
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --verify-tag --title "prex $RELEASE_TAG" --generate-notes --draft
+          fi
+          gh release upload "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest

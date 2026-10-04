@@ -1,0 +1,36 @@
+name: fs
+version: v0.4.0
+source:
+  github: kongdd/fs
+assets:
+  linux-amd64-gnu:
+    file: fs-{version}-linux-x86_64.tar.gz
+    format: tar.gz
+    checksum: SHA256SUMS.txt
+  linux-arm64-gnu:
+    file: fs-{version}-linux-aarch64.tar.gz
+    format: tar.gz
+    checksum: SHA256SUMS.txt
+  linux-amd64-musl:
+    file: fs-{version}-linux-x86_64.tar.gz
+    format: tar.gz
+    checksum: SHA256SUMS.txt
+  linux-arm64-musl:
+    file: fs-{version}-linux-aarch64.tar.gz
+    format: tar.gz
+    checksum: SHA256SUMS.txt
+  # Upstream requires macOS 26+ and does not publish an Intel Mac build.
+  darwin-arm64:
+    file: fs-{version}-macos-aarch64.tar.gz
+    format: tar.gz
+    checksum: SHA256SUMS.txt
+  windows-amd64:
+    file: fs-{version}-windows-x86_64.zip
+    format: zip
+    checksum: SHA256SUMS.txt
+  windows-arm64:
+    file: fs-{version}-windows-aarch64.zip
+    format: zip
+    checksum: SHA256SUMS.txt
+executables:
+  - fs

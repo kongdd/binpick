@@ -13,17 +13,22 @@ pub(crate) fn platform() -> Result<String> {
         "aarch64" => "arm64",
         other => bail!("unsupported architecture: {other}"),
     };
-    // On Linux, select explicit libc assets; do not pretend musl and glibc are interchangeable.
+    // A portable musl prex can run on GNU hosts: select package ABI for the host,
+    // not for the package manager itself. Without getconf, use the build target.
     let libc = if os == "linux" {
-        if cfg!(target_env = "musl") {
-            "-musl"
-        } else {
-            "-gnu"
-        }
+        linux_libc(cfg!(target_env = "musl"), glibc_version().is_some())
     } else {
         ""
     };
     Ok(format!("{os}-{arch}{libc}"))
+}
+
+fn linux_libc(built_with_musl: bool, has_glibc: bool) -> &'static str {
+    if built_with_musl && !has_glibc {
+        "-musl"
+    } else {
+        "-gnu"
+    }
 }
 
 pub(crate) fn glibc_version() -> Option<String> {
@@ -112,4 +117,15 @@ pub(crate) fn render_with(template: &str, tag: &str, platform: &str, format: &st
     render(template, tag)
         .replace("{platform}", platform)
         .replace("{format}", format)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn portable_manager_selects_host_package_abi() {
+        assert_eq!(super::linux_libc(true, true), "-gnu");
+        assert_eq!(super::linux_libc(true, false), "-musl");
+        assert_eq!(super::linux_libc(false, true), "-gnu");
+        assert_eq!(super::linux_libc(false, false), "-gnu");
+    }
 }

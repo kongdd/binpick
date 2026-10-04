@@ -5,6 +5,7 @@ use std::fs;
 fn install_two(f: &Fixture) {
     f.cmd().args(["install", "demo"]).assert().success();
     f.cmd().args(["update", "demo"]).assert().success();
+    f.cmd().args(["upgrade", "demo"]).assert().success();
 }
 fn count(f: &Fixture) -> usize {
     fs::read_dir(f.dir.path().join("data/packages/demo"))
@@ -19,7 +20,7 @@ fn offline_rollback_and_explicit_version() {
     f.cmd().args(["history", "demo"]).assert().success();
     f.cmd()
         .args(["rollback", "demo"])
-        .env("BINPICK_GITHUB_API", "http://127.0.0.1:1")
+        .env("PREX_GITHUB_API", "http://127.0.0.1:1")
         .assert()
         .success();
     assert_eq!(f.version(), "v1");
@@ -68,10 +69,15 @@ fn pin_prevents_network_and_version_changes() {
     f.cmd().args(["pin", "demo"]).assert().success();
     f.cmd()
         .args(["update", "demo"])
-        .env("BINPICK_GITHUB_API", "http://127.0.0.1:1")
+        .env("PREX_GITHUB_API", "http://127.0.0.1:1")
         .assert()
         .success();
     assert_eq!(f.version(), "v1");
+    f.cmd()
+        .args(["upgrade", "demo"])
+        .env("PREX_GITHUB_API", "http://127.0.0.1:1")
+        .assert()
+        .success();
     f.cmd().args(["unpin", "demo"]).assert().success();
     f.cmd().args(["update", "demo"]).assert().success();
     assert_eq!(f.version(), "v2");
@@ -84,8 +90,7 @@ fn corrupted_retained_binary_cannot_be_activated() {
     for entry in fs::read_dir(f.dir.path().join("data/packages/demo")).unwrap() {
         let path = entry.unwrap().path();
         let metadata: serde_json::Value =
-            serde_json::from_slice(&fs::read(path.join(".binpick-generation.json")).unwrap())
-                .unwrap();
+            serde_json::from_slice(&fs::read(path.join(".prex-generation.json")).unwrap()).unwrap();
         if metadata["version"] == "v1" {
             let exe = if cfg!(windows) { "demo.exe" } else { "demo" };
             fs::write(path.join(exe), b"tampered").unwrap();
@@ -115,11 +120,11 @@ fn legacy_state_migrates_without_reinstall() {
     state.as_object_mut().unwrap().remove("generation");
     fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
     for entry in fs::read_dir(f.dir.path().join("data/packages/demo")).unwrap() {
-        fs::remove_file(entry.unwrap().path().join(".binpick-generation.json")).unwrap();
+        fs::remove_file(entry.unwrap().path().join(".prex-generation.json")).unwrap();
     }
     f.cmd()
         .args(["doctor"])
-        .env("BINPICK_GITHUB_API", "http://127.0.0.1:1")
+        .env("PREX_GITHUB_API", "http://127.0.0.1:1")
         .assert()
         .success();
     let state: serde_json::Value = serde_json::from_slice(&fs::read(state_path).unwrap()).unwrap();
@@ -146,8 +151,52 @@ fn reinstall_same_version_does_not_create_generation() {
     f.cmd().args(["install", "demo"]).assert().success();
     f.cmd()
         .args(["install", "demo"])
-        .env("BINPICK_GITHUB_API", "http://127.0.0.1:1")
+        .env("PREX_GITHUB_API", "http://127.0.0.1:1")
         .assert()
         .success();
     assert_eq!(count(&f), 1);
+}
+
+#[test]
+fn legacy_binpick_metadata_supports_history_rollback_and_gc() {
+    let f = Fixture::new(false);
+    install_two(&f);
+    for entry in fs::read_dir(f.dir.path().join("data/packages/demo")).unwrap() {
+        let path = entry.unwrap().path();
+        fs::rename(
+            path.join(".prex-generation.json"),
+            path.join(".binpick-generation.json"),
+        )
+        .unwrap();
+    }
+    f.cmd().args(["history", "demo"]).assert().success();
+    f.cmd().args(["doctor"]).assert().success();
+    f.cmd().args(["rollback", "demo"]).assert().success();
+    assert_eq!(f.version(), "v1");
+    assert_eq!(fs::read(f.binary()).unwrap(), b"/download/v1");
+    f.cmd()
+        .args(["gc", "demo", "--keep", "1"])
+        .assert()
+        .success();
+    assert_eq!(count(&f), 1);
+    f.cmd().args(["doctor"]).assert().success();
+}
+
+#[test]
+fn invalid_prex_metadata_does_not_fall_back_to_legacy() {
+    let f = Fixture::new(false);
+    f.cmd().args(["install", "demo"]).assert().success();
+    let path = fs::read_dir(f.dir.path().join("data/packages/demo"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    fs::copy(
+        path.join(".prex-generation.json"),
+        path.join(".binpick-generation.json"),
+    )
+    .unwrap();
+    fs::write(path.join(".prex-generation.json"), b"corrupted").unwrap();
+    f.cmd().args(["doctor"]).assert().failure();
 }

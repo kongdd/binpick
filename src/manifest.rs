@@ -10,6 +10,9 @@ pub(crate) struct Manifest {
     /// Exact upstream tag, including a leading v if present
     pub(crate) version: String,
     pub(crate) source: Source,
+    /// Version discovery for URL sources, independent of download templates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) checkver: Option<Checkver>,
     pub(crate) assets: BTreeMap<String, Asset>,
     pub(crate) executables: Vec<String>,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -31,6 +34,15 @@ pub(crate) struct Source {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct Checkver {
+    pub(crate) url: String,
+    /// RFC 6901 JSON Pointer; without it, the response is a plain-text version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) json_pointer: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct Asset {
     pub(crate) file: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -42,7 +54,7 @@ pub(crate) struct Asset {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) checksum_url: Option<String>,
     /// Per-asset URL template override when the source.url pattern needs
-    /// platform-specific fragments (e.g. node uses `linux-x64` while binpick
+    /// platform-specific fragments (e.g. node uses `linux-x64` while prex
     /// calls the platform `linux-amd64-gnu`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) url: Option<String>,

@@ -1,5 +1,5 @@
 use crate::{
-    manifest::{self, Installed, Manifest, Release},
+    manifest::{Installed, Manifest, Release},
     platform::{binary_name, render, render_with, select_asset},
     storage::{
         atomic_write, extract, remove_file_if_exists, validate_name, validate_version,
@@ -26,7 +26,7 @@ impl App {
         ] {
             fs::create_dir_all(path)?;
         }
-        manifest::seed(&self.manifests)
+        Ok(())
     }
 
     pub(crate) fn names(&self) -> Result<Vec<String>> {
@@ -79,6 +79,22 @@ impl App {
             (None, None) => bail!("manifest must declare source.github or source.url"),
             (Some(_), Some(_)) => bail!("source.github and source.url are mutually exclusive"),
         }
+        if let Some(checkver) = &m.checkver {
+            if m.source.github.is_some() {
+                bail!("checkver is only supported for URL sources; GitHub discovers release tags");
+            }
+            let url = reqwest::Url::parse(&checkver.url).context("invalid checkver URL")?;
+            if !matches!(url.scheme(), "http" | "https") {
+                bail!("checkver URL must be http(s)");
+            }
+            if checkver
+                .json_pointer
+                .as_ref()
+                .is_some_and(|p| !p.is_empty() && !p.starts_with('/'))
+            {
+                bail!("checkver.json_pointer must be empty or start with /");
+            }
+        }
         if m.executables.is_empty() {
             bail!("executables cannot be empty");
         }
@@ -122,8 +138,7 @@ impl App {
 impl App {
     pub(crate) fn github(&self, m: &Manifest, latest: bool) -> Result<Release> {
         let mut url = reqwest::Url::parse(
-            &std::env::var("BINPICK_GITHUB_API")
-                .unwrap_or_else(|_| "https://api.github.com".into()),
+            &std::env::var("PREX_GITHUB_API").unwrap_or_else(|_| "https://api.github.com".into()),
         )?;
         {
             let mut segments = url
@@ -160,46 +175,119 @@ impl App {
     }
 }
 impl App {
-    pub(crate) fn update(&self, name: &str) -> Result<()> {
+    pub(crate) fn update_many(&self, names: Vec<String>, dry_run: bool) -> Result<()> {
+        let names = if names.is_empty() {
+            self.names()?
+        } else {
+            names
+        };
+        self.process_many(names, "update", |name| self.update(name, dry_run))
+    }
+
+    pub(crate) fn upgrade_many(&self, names: Vec<String>) -> Result<()> {
+        let names = if names.is_empty() {
+            self.installed_names()?
+        } else {
+            names
+        };
+        self.process_many(names, "upgrade", |name| self.upgrade(name))
+    }
+
+    fn process_many(
+        &self,
+        names: Vec<String>,
+        operation: &str,
+        action: impl Fn(&str) -> Result<()>,
+    ) -> Result<()> {
+        let mut failed = false;
+        for name in names {
+            if let Err(e) = action(&name) {
+                eprintln!("{name}: {e:#}");
+                failed = true;
+            }
+        }
+        if failed {
+            bail!("some packages failed to {operation}");
+        }
+        Ok(())
+    }
+
+    fn check_version(&self, m: &Manifest) -> Result<String> {
+        let checkver = m.checkver.as_ref().context("checkver is not configured")?;
+        // No GitHub token or other API-specific credentials are sent to this URL.
+        let response = self
+            .client
+            .get(&checkver.url)
+            .send()?
+            .error_for_status()
+            .context("version discovery request failed")?;
+        let version = if let Some(pointer) = &checkver.json_pointer {
+            let json: serde_json::Value = response.json().context("invalid checkver JSON")?;
+            json.pointer(pointer)
+                .and_then(serde_json::Value::as_str)
+                .with_context(|| format!("checkver JSON pointer {pointer:?} must select a string"))?
+                .to_owned()
+        } else {
+            response.text()?.trim().to_owned()
+        };
+        validate_version(&version).context("invalid discovered version")?;
+        Ok(version)
+    }
+
+    fn update(&self, name: &str, dry_run: bool) -> Result<()> {
         let mut m = self.manifest(name)?;
         if m.pinned {
             println!("{name}: pinned ({}), skipped", m.version);
             return Ok(());
         }
+        let old = m.version.clone();
         if m.source.github.is_some() {
-            let release = self.github(&m, true)?;
-            let old = m.version.clone();
-            m.version = release.tag_name.clone();
-            if let Some(state) = self.installed(name)? {
-                if state.version != m.version {
-                    self.install(&m, Some(&release))?;
-                }
-            }
+            m.version = self.github(&m, true)?.tag_name;
+        } else if m.checkver.is_some() {
+            m.version = self.check_version(&m)?;
+        } else {
+            println!("{name}: no checkver configured, YAML unchanged ({old})");
+            return Ok(());
+        }
+        if dry_run {
             if old != m.version {
-                atomic_write(
-                    &self.manifest_path(name)?,
-                    serde_yaml::to_string(&m)?.as_bytes(),
-                )?;
-                println!("{name}: YAML {old} -> {}", m.version);
+                println!("{name}: YAML {old} -> {} (dry run)", m.version);
             } else {
-                println!("{name}: up to date ({})", m.version);
+                println!("{name}: up to date ({old})");
             }
             return Ok(());
         }
-        // URL sources use the version already recorded in the manifest;
-        // discovery requires the host's own latest-version endpoint, which
-        // is out of scope for this MVP.
-        if let Some(state) = self.installed(name)? {
-            if state.version != m.version {
-                self.install(&m, None)?;
-            } else {
-                println!("{name}: up to date ({})", m.version);
-            }
+        if old != m.version {
+            atomic_write(
+                &self.manifest_path(name)?,
+                serde_yaml::to_string(&m)?.as_bytes(),
+            )?;
+            println!("{name}: YAML {old} -> {}", m.version);
+        } else {
+            println!("{name}: up to date ({old})");
         }
         Ok(())
     }
 
-    pub(crate) fn install(&self, m: &Manifest, release: Option<&Release>) -> Result<()> {
+    fn upgrade(&self, name: &str) -> Result<()> {
+        let m = self.manifest(name)?;
+        if m.pinned {
+            println!("{name}: pinned ({}), skipped", m.version);
+            return Ok(());
+        }
+        let Some(state) = self.installed(name)? else {
+            println!("{name}: not installed, skipped (use install)");
+            return Ok(());
+        };
+        if state.version == m.version {
+            println!("{name}: up to date ({})", m.version);
+            return Ok(());
+        }
+        // Fetch the exact YAML version, never the latest-version discovery endpoint.
+        self.install(&m)
+    }
+
+    pub(crate) fn install(&self, m: &Manifest) -> Result<()> {
         let (platform, asset) = select_asset(m)?;
         let binaries: Vec<String> = m.executables.iter().map(|e| binary_name(e)).collect();
         let old_state = self.installed(&m.name)?;
@@ -208,57 +296,40 @@ impl App {
             println!("{}: already installed ({})", m.name, m.version);
             return Ok(());
         }
-        let owned_release;
-        let release = match release {
-            Some(r) => r,
-            None => match &m.source.github {
-                Some(_) => {
-                    owned_release = self.github(m, false)?;
-                    &owned_release
-                }
-                None => {
-                    owned_release = Release {
-                        tag_name: m.version.clone(),
-                        draft: false,
-                        prerelease: false,
-                        assets: Vec::new(),
-                    };
-                    &owned_release
-                }
-            },
+        let release = m
+            .source
+            .github
+            .as_ref()
+            .map(|_| self.github(m, false))
+            .transpose()?;
+        let assets = release.as_ref().map(|r| r.assets.as_slice()).unwrap_or(&[]);
+        let release_url = |file: &str| {
+            assets
+                .iter()
+                .find(|a| a.name == file)
+                .map(|a| a.browser_download_url.clone())
         };
         let filename = render(&asset.file, &m.version);
-        let download_url =
-            if let Some(release_asset) = release.assets.iter().find(|a| a.name == filename) {
-                release_asset.browser_download_url.clone()
-            } else {
-                let template = asset
-                    .url
-                    .as_ref()
-                    .or(m.source.url.as_ref())
-                    .with_context(|| format!("release {} has no asset {filename}", m.version))?;
-                render_with(
-                    template,
-                    &m.version,
-                    &platform,
-                    asset.format.as_deref().unwrap_or("raw"),
-                )
-            };
-        let checksum_url = if asset.checksum.is_some() {
-            if let Some(release_asset) = asset.checksum.as_ref().and_then(|name| {
-                let name = render(name, &m.version);
-                release.assets.iter().find(|a| a.name == name)
-            }) {
-                Some(release_asset.browser_download_url.clone())
-            } else {
+        let download_url = release_url(&filename)
+            .or_else(|| {
+                asset.url.as_ref().or(m.source.url.as_ref()).map(|url| {
+                    render_with(
+                        url,
+                        &m.version,
+                        &platform,
+                        asset.format.as_deref().unwrap_or("raw"),
+                    )
+                })
+            })
+            .with_context(|| format!("release {} has no asset {filename}", m.version))?;
+        let checksum_url = asset.checksum.as_ref().and_then(|file| {
+            release_url(&render(file, &m.version)).or_else(|| {
                 asset
                     .checksum_url
                     .as_ref()
-                    .map(|template| render(template, &m.version))
-            }
-        } else {
-            None
-        };
+                    .map(|url| render(url, &m.version))
+            })
+        });
         println!("{}: downloading {filename} ({platform})", m.name);
         let temp = tempfile::tempdir_in(self.root.join("packages"))?;
         let archive = temp.path().join("download");
@@ -300,7 +371,7 @@ impl App {
         }
         let recorded = self.record_generation(&m.name, &m.version, &binaries, generation.path())?;
         let _destination = generation.keep();
-        self.activate(m, &recorded)?;
+        self.activate(m, &recorded, false)?;
         println!("{}: installed {}", m.name, m.version);
         Ok(())
     }

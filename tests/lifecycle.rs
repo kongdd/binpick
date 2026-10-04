@@ -12,7 +12,7 @@ fn disconnected_clients_do_not_stop_server() {
     let cmd = f.cmd();
     let url = cmd
         .get_envs()
-        .find(|(key, _)| *key == "BINPICK_GITHUB_API")
+        .find(|(key, _)| *key == "PREX_GITHUB_API")
         .and_then(|(_, value)| value)
         .unwrap()
         .to_str()
@@ -38,7 +38,7 @@ fn server_waits_for_fragmented_request_headers() {
     let cmd = f.cmd();
     let url = cmd
         .get_envs()
-        .find(|(key, _)| *key == "BINPICK_GITHUB_API")
+        .find(|(key, _)| *key == "PREX_GITHUB_API")
         .and_then(|(_, value)| value)
         .unwrap()
         .to_str()
@@ -57,13 +57,21 @@ fn server_waits_for_fragmented_request_headers() {
 }
 
 #[test]
-fn install_update_remove() {
+fn install_update_upgrade_remove() {
     let f = Fixture::new(false);
     f.cmd().args(["install", "demo"]).assert().success();
     assert_eq!(fs::read(f.binary()).unwrap(), b"/download/v1");
     assert_eq!(f.version(), "v1");
+    let state_path = f.dir.path().join("data/state/demo.json");
+    let old_state = fs::read(&state_path).unwrap();
     f.cmd().args(["update", "demo"]).assert().success();
     assert_eq!(f.version(), "v2");
+    assert_eq!(fs::read(f.binary()).unwrap(), b"/download/v1");
+    assert_eq!(fs::read(&state_path).unwrap(), old_state);
+    let manifest_path = f.dir.path().join("manifests/demo.yaml");
+    let yaml = fs::read(&manifest_path).unwrap();
+    f.cmd().args(["upgrade"]).assert().success();
+    assert_eq!(fs::read(&manifest_path).unwrap(), yaml);
     assert_eq!(fs::read(f.binary()).unwrap(), b"/download/v2");
     let state: serde_json::Value =
         serde_json::from_slice(&fs::read(f.dir.path().join("data/state/demo.json")).unwrap())
@@ -85,12 +93,16 @@ fn uninstalled_update_only_changes_yaml() {
 }
 
 #[test]
-fn failed_update_keeps_yaml_and_installed_binary() {
+fn failed_upgrade_keeps_yaml_and_installed_binary() {
     let mut f = Fixture::new(false);
     f.cmd().args(["install", "demo"]).assert().success();
+    f.cmd().args(["update", "demo"]).assert().success();
+    let manifest_path = f.dir.path().join("manifests/demo.yaml");
+    let yaml = fs::read(&manifest_path).unwrap();
     f.server = Server::start(true);
-    f.cmd().args(["update", "demo"]).assert().failure();
-    assert_eq!(f.version(), "v1");
+    f.cmd().args(["upgrade", "demo"]).assert().failure();
+    assert_eq!(f.version(), "v2");
+    assert_eq!(fs::read(&manifest_path).unwrap(), yaml);
     assert_eq!(fs::read(f.binary()).unwrap(), b"/download/v1");
 }
 
@@ -116,6 +128,7 @@ fn runtime_manifest_needs_no_code_registration() {
     f.cmd().args(["install", "new-tool"]).assert().success();
     assert_eq!(fs::read(f.binary()).unwrap(), b"/download/v1");
     f.cmd().args(["update", "new-tool"]).assert().success();
+    f.cmd().args(["upgrade", "new-tool"]).assert().success();
     let state: serde_json::Value =
         serde_json::from_slice(&fs::read(f.dir.path().join("data/state/new-tool.json")).unwrap())
             .unwrap();
@@ -190,6 +203,10 @@ fn node_fixture(bad_checksum: bool) -> Fixture {
         }
         routes.insert(format!("/dist/{version}/SHASUMS256.txt"), sums.into_bytes());
     }
+    routes.insert(
+        "/dist/index.json".into(),
+        br#"[{"version":"v1.2.4"}]"#.to_vec(),
+    );
     let mut f = Fixture::new(false);
     f.server = Server::with_handler(move |path, _| match routes.get(path) {
         Some(body) => ("200 OK", body.clone()),
@@ -233,7 +250,7 @@ fn node_checksum_mismatch_does_not_publish_installation() {
 }
 
 #[test]
-fn failed_url_update_preserves_installed_node_and_manifest() {
+fn failed_url_upgrade_preserves_installed_node_and_manifest() {
     let f = node_fixture(false);
     f.cmd().args(["install", "node"]).assert().success();
     let state_path = f.dir.path().join("data/state/node.json");
@@ -243,7 +260,7 @@ fn failed_url_update_preserves_installed_node_and_manifest() {
         .unwrap()
         .replace("v1.2.3", "v1.2.4");
     fs::write(&manifest_path, &yaml).unwrap();
-    let result = f.cmd().args(["update", "node"]).assert().failure();
+    let result = f.cmd().args(["upgrade", "node"]).assert().failure();
     assert!(String::from_utf8_lossy(&result.get_output().stderr).contains("SHA-256 mismatch"));
     assert_eq!(fs::read(node_binary(&f)).unwrap(), b"fixture-node-v1.2.3");
     assert_eq!(fs::read(&state_path).unwrap(), old_state);
@@ -262,6 +279,270 @@ fn url_source_downloads_without_github_or_asset_url_override() {
     f.cmd().args(["install", "demo"]).assert().success();
     assert_eq!(fs::read(f.binary()).unwrap(), b"/download/v1");
     fs::write(&manifest_path, yaml.replace("version: v1", "version: v2")).unwrap();
-    f.cmd().args(["update", "demo"]).assert().success();
+    f.cmd().args(["upgrade", "demo"]).assert().success();
     assert_eq!(fs::read(f.binary()).unwrap(), b"/download/v2");
+}
+
+#[test]
+fn update_dry_run_preserves_yaml_and_installed_state() {
+    let f = Fixture::new(false);
+    f.cmd().args(["install", "demo"]).assert().success();
+    let manifest_path = f.dir.path().join("manifests/demo.yaml");
+    let yaml = fs::read(&manifest_path).unwrap();
+    let state_path = f.dir.path().join("data/state/demo.json");
+    let state = fs::read(&state_path).unwrap();
+    let result = f
+        .cmd()
+        .args(["update", "demo", "--dry-run"])
+        .assert()
+        .success();
+    assert!(String::from_utf8_lossy(&result.get_output().stdout).contains("v1 -> v2 (dry run)"));
+    assert_eq!(fs::read(&manifest_path).unwrap(), yaml);
+    assert_eq!(fs::read(&state_path).unwrap(), state);
+    assert_eq!(fs::read(f.binary()).unwrap(), b"/download/v1");
+}
+
+#[test]
+fn update_does_not_read_or_migrate_installed_state() {
+    let f = Fixture::new(false);
+    f.cmd().arg("init").assert().success();
+    let state_path = f.dir.path().join("data/state/demo.json");
+    fs::write(&state_path, b"broken installed state").unwrap();
+    f.cmd().args(["update", "demo"]).assert().success();
+    assert_eq!(f.version(), "v2");
+    assert_eq!(fs::read(&state_path).unwrap(), b"broken installed state");
+}
+
+#[test]
+fn update_failure_keeps_yaml_and_continues_other_packages() {
+    let f = Fixture::new(false);
+    f.cmd()
+        .args(["update", "missing", "demo"])
+        .assert()
+        .failure();
+    assert_eq!(f.version(), "v2");
+    assert!(!f.binary().exists());
+}
+
+#[test]
+fn node_update_discovers_version_without_downloading_or_upgrading() {
+    let f = node_fixture(false);
+    f.cmd().args(["install", "node"]).assert().success();
+    let path = f.dir.path().join("manifests/node.yaml");
+    let before: serde_yaml::Value = serde_yaml::from_slice(&fs::read(&path).unwrap()).unwrap();
+    // v1.2.4 has deliberately bad checksums: update must not fetch or verify artifacts.
+    f.cmd().args(["update", "node"]).assert().success();
+    let after: serde_yaml::Value = serde_yaml::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert_eq!(after["version"].as_str(), Some("v1.2.4"));
+    assert_eq!(after["assets"], before["assets"]);
+    assert_eq!(after["checkver"], before["checkver"]);
+    assert_eq!(fs::read(node_binary(&f)).unwrap(), b"fixture-node-v1.2.3");
+}
+
+#[test]
+fn upgrade_skips_uninstalled_packages_and_preserves_yaml_bytes() {
+    let f = Fixture::new(false);
+    let path = f.dir.path().join("manifests/demo.yaml");
+    let yaml = fs::read(&path).unwrap();
+    f.cmd()
+        .args(["upgrade", "demo"])
+        .env("PREX_GITHUB_API", "http://127.0.0.1:1")
+        .assert()
+        .success();
+    assert!(!f.binary().exists());
+    assert_eq!(fs::read(&path).unwrap(), yaml);
+}
+
+fn checkver_fixture(body: &[u8], pointer: Option<&str>) -> Fixture {
+    let mut f = Fixture::new(false);
+    let body = body.to_vec();
+    f.server = Server::with_handler(move |path, _| {
+        if path == "/version" {
+            ("200 OK", body.clone())
+        } else if path.starts_with("/download/") {
+            ("200 OK", path.as_bytes().to_vec())
+        } else {
+            ("404 Not Found", Vec::new())
+        }
+    });
+    let path = f.dir.path().join("manifests/demo.yaml");
+    let mut yaml: serde_yaml::Value = serde_yaml::from_slice(&fs::read(&path).unwrap()).unwrap();
+    yaml["source"] = serde_yaml::to_value(serde_json::json!({
+        "url": format!("{}/download/{{tag}}", f.server.url)
+    }))
+    .unwrap();
+    let mut checkver = serde_json::json!({"url": format!("{}/version", f.server.url)});
+    if let Some(pointer) = pointer {
+        checkver["json_pointer"] = pointer.into();
+    }
+    yaml["checkver"] = serde_yaml::to_value(checkver).unwrap();
+    fs::write(&path, serde_yaml::to_string(&yaml).unwrap()).unwrap();
+    f
+}
+
+#[test]
+fn url_update_supports_json_pointer_and_plain_text() {
+    for (body, pointer) in [
+        (
+            br#"{"release":{"tag":"v2"}}"#.as_slice(),
+            Some("/release/tag"),
+        ),
+        (b"  v2\n".as_slice(), None),
+    ] {
+        let f = checkver_fixture(body, pointer);
+        f.cmd().args(["install", "demo"]).assert().success();
+        f.cmd().args(["update", "demo"]).assert().success();
+        assert_eq!(f.version(), "v2");
+        assert_eq!(fs::read(f.binary()).unwrap(), b"/download/v1");
+        let path = f.dir.path().join("manifests/demo.yaml");
+        let yaml = fs::read(&path).unwrap();
+        f.cmd().args(["upgrade", "demo"]).assert().success();
+        assert_eq!(fs::read(f.binary()).unwrap(), b"/download/v2");
+        assert_eq!(fs::read(&path).unwrap(), yaml);
+    }
+}
+
+#[test]
+fn invalid_discovered_versions_leave_yaml_unchanged() {
+    for (body, pointer) in [
+        (br#"{"version":"../unsafe"}"#.as_slice(), Some("/version")),
+        (br#"{"version":2}"#.as_slice(), Some("/version")),
+        (br#"{}"#.as_slice(), Some("/version")),
+        (b"not json".as_slice(), Some("/version")),
+        (b"../unsafe".as_slice(), None),
+        (b"\n".as_slice(), None),
+    ] {
+        let f = checkver_fixture(body, pointer);
+        let path = f.dir.path().join("manifests/demo.yaml");
+        let yaml = fs::read(&path).unwrap();
+        f.cmd().args(["update", "demo"]).assert().failure();
+        assert_eq!(fs::read(&path).unwrap(), yaml);
+        assert!(!f.binary().exists());
+    }
+}
+
+#[test]
+fn upgrade_fetches_exact_yaml_tag_without_querying_latest() {
+    let mut f = Fixture::new(false);
+    f.cmd().args(["install", "demo"]).assert().success();
+    let path = f.dir.path().join("manifests/demo.yaml");
+    let yaml = format!(
+        "# Preserve custom comments and formatting\n{}",
+        fs::read_to_string(&path)
+            .unwrap()
+            .replace("version: v1", "version: v2")
+    );
+    fs::write(&path, &yaml).unwrap();
+    f.server = Server::with_handler(|path, base| {
+        if path == "/repos/test/demo/releases/tags/v2" {
+            let release = serde_json::json!({
+                "tag_name": "v2", "draft": false, "prerelease": false,
+                "assets": [{"name": "demo.bin", "browser_download_url": format!("{base}/download/v2")}]
+            });
+            ("200 OK", release.to_string().into_bytes())
+        } else if path == "/download/v2" {
+            ("200 OK", path.as_bytes().to_vec())
+        } else {
+            // In particular, /releases/latest must not be requested.
+            ("404 Not Found", Vec::new())
+        }
+    });
+    f.cmd().args(["upgrade", "demo"]).assert().success();
+    assert_eq!(fs::read(f.binary()).unwrap(), b"/download/v2");
+    assert_eq!(fs::read_to_string(&path).unwrap(), yaml);
+}
+
+#[test]
+fn update_without_names_refreshes_all_manifests() {
+    let f = Fixture::new(false);
+    f.cmd().arg("init").assert().success();
+    let directory = f.dir.path().join("manifests");
+    let template = fs::read_to_string(directory.join("demo.yaml")).unwrap();
+    fs::write(directory.join("other.yaml"), &template).unwrap();
+    for entry in fs::read_dir(&directory).unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_stem().unwrap().to_str().unwrap();
+        fs::write(
+            &path,
+            template.replace("name: demo", &format!("name: {name}")),
+        )
+        .unwrap();
+    }
+    f.cmd().arg("update").assert().success();
+    for entry in fs::read_dir(&directory).unwrap() {
+        let yaml: serde_yaml::Value =
+            serde_yaml::from_slice(&fs::read(entry.unwrap().path()).unwrap()).unwrap();
+        assert_eq!(yaml["version"].as_str(), Some("v2"));
+    }
+    assert!(!f.binary().exists());
+}
+
+#[test]
+fn failed_version_request_does_not_modify_yaml() {
+    let mut f = Fixture::new(false);
+    let path = f.dir.path().join("manifests/demo.yaml");
+    let yaml = fs::read(&path).unwrap();
+    f.server = Server::with_handler(|_, _| ("500 Internal Server Error", Vec::new()));
+    f.cmd().args(["update", "demo"]).assert().failure();
+    assert_eq!(fs::read(&path).unwrap(), yaml);
+    assert!(!f.binary().exists());
+}
+
+#[test]
+fn update_skips_url_sources_without_checkver() {
+    let f = Fixture::new(false);
+    let path = f.dir.path().join("manifests/demo.yaml");
+    let yaml = fs::read_to_string(&path).unwrap().replace(
+        "github: test/demo",
+        &format!("url: {}/download/{{tag}}", f.server.url),
+    );
+    fs::write(&path, &yaml).unwrap();
+    let result = f.cmd().args(["update", "demo"]).assert().success();
+    assert!(String::from_utf8_lossy(&result.get_output().stdout).contains("no checkver configured"));
+    assert_eq!(fs::read_to_string(&path).unwrap(), yaml);
+    assert!(!f.binary().exists());
+}
+
+#[test]
+fn explicit_manifest_directory_is_authoritative() {
+    let f = Fixture::new(false);
+    let directory = f.dir.path().join("manifests");
+    let yaml = fs::read(directory.join("demo.yaml")).unwrap();
+    f.cmd().arg("init").assert().success();
+    assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
+    assert_eq!(fs::read(directory.join("demo.yaml")).unwrap(), yaml);
+    let result = f.cmd().arg("list").assert().success();
+    let output = String::from_utf8_lossy(&result.get_output().stdout);
+    assert!(output.contains("demo"));
+    assert!(!output.contains("node"));
+}
+
+#[test]
+fn prex_environment_selects_external_manifest_repo_and_root() {
+    let f = Fixture::new(false);
+    let root = f.dir.path().join("env-data");
+    let directory = f.dir.path().join("manifests");
+    assert_cmd::Command::new(assert_cmd::cargo::cargo_bin!("prex"))
+        .arg("init")
+        .env("PREX_ROOT", &root)
+        .env("PREX_MANIFESTS", &directory)
+        .assert()
+        .success();
+    assert!(root.join("state").is_dir());
+    assert!(!root.join("manifests").exists());
+    assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
+}
+
+#[test]
+fn default_manifest_directory_seeds_bundled_snapshot() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("data");
+    assert_cmd::Command::new(assert_cmd::cargo::cargo_bin!("prex"))
+        .args(["--root", root.to_str().unwrap(), "init"])
+        .env_remove("PREX_MANIFESTS")
+        .assert()
+        .success();
+    assert!(root.join("manifests/node.yaml").is_file());
+    assert!(root.join("manifests/codebase-memory-mcp.yaml").is_file());
+    assert!(!root.join("manifests/README.md").exists());
 }

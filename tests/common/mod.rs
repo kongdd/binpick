@@ -21,7 +21,11 @@ impl Server {
     pub(crate) fn start(fail_download: bool) -> Self {
         Self::with_handler(move |path, base| {
             if path.starts_with("/repos/test/demo/releases/") {
-                let version = if path.ends_with("latest") { "v2" } else { "v1" };
+                let version = if path.ends_with("latest") {
+                    "v2"
+                } else {
+                    path.rsplit('/').next().unwrap()
+                };
                 ("200 OK", json!({
                     "tag_name": version, "draft": false, "prerelease": false,
                     "assets": [{"name": "demo.bin", "browser_download_url": format!("{base}/download/{version}")}]
@@ -138,12 +142,12 @@ impl Fixture {
         }
     }
     pub(crate) fn cmd(&self) -> Command {
-        let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("binpick"));
+        let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("prex"));
         cmd.arg("--root")
             .arg(self.dir.path().join("data"))
             .arg("--manifests")
             .arg(self.dir.path().join("manifests"))
-            .env("BINPICK_GITHUB_API", &self.server.url)
+            .env("PREX_GITHUB_API", &self.server.url)
             .env("NO_PROXY", "*")
             .env("no_proxy", "*")
             .env_remove("GITHUB_TOKEN")

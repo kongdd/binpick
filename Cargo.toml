@@ -1,5 +1,5 @@
 [package]
-name = "binpick"
+name = "prex"
 version = "0.1.0"
 edition = "2021"
 description = "A cross-platform package manager for prebuilt executables"
@@ -18,7 +18,7 @@ serde_yaml = "0.9"
 sha2 = "0.10"
 tar = "0.4"
 tempfile = "3"
-xz2 = "0.1"
+xz2 = { version = "0.1", features = ["static"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]

@@ -13,7 +13,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const METADATA: &str = ".binpick-generation.json";
+const METADATA: &str = ".prex-generation.json";
+// Existing binpick installations remain usable through --root / PREX_ROOT.
+const LEGACY_METADATA: &str = ".binpick-generation.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Generation {
@@ -119,7 +121,12 @@ impl App {
 
     fn read_generation(&self, name: &str, id: &str) -> Result<Generation> {
         let dir = self.generation_path(name, id)?;
-        let g: Generation = serde_json::from_slice(&fs::read(dir.join(METADATA))?)?;
+        let bytes = match fs::read(dir.join(METADATA)) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => fs::read(dir.join(LEGACY_METADATA))?,
+            Err(e) => return Err(e.into()),
+        };
+        let g: Generation = serde_json::from_slice(&bytes)?;
         if g.name != name || g.id != id {
             bail!("generation metadata identity mismatch");
         }
@@ -266,7 +273,7 @@ impl App {
         for entry in fs::read_dir(parent)? {
             let path = entry?.path();
             // Untracked staging/legacy directories are never automatically removed.
-            if !path.join(METADATA).exists() {
+            if !path.join(METADATA).exists() && !path.join(LEGACY_METADATA).exists() {
                 continue;
             }
             let id = path
@@ -315,7 +322,12 @@ impl App {
         Ok(())
     }
 
-    pub(crate) fn activate(&self, m: &Manifest, g: &Generation) -> Result<()> {
+    pub(crate) fn activate(
+        &self,
+        m: &Manifest,
+        g: &Generation,
+        write_manifest: bool,
+    ) -> Result<()> {
         if m.name != g.name || m.version != g.version {
             bail!("activation manifest mismatch");
         }
@@ -331,7 +343,9 @@ impl App {
             paths.extend(s.executables.iter().map(|e| self.root.join("bin").join(e)));
         }
         paths.insert(self.state_path(&m.name)?);
-        paths.insert(self.manifest_path(&m.name)?);
+        if write_manifest {
+            paths.insert(self.manifest_path(&m.name)?);
+        }
         let snapshots = paths
             .into_iter()
             .map(|p| Snapshot::capture(&p).map(|s| (p, s)))
@@ -358,10 +372,12 @@ impl App {
                 &self.state_path(&m.name)?,
                 &serde_json::to_vec_pretty(&state)?,
             )?;
-            atomic_write(
-                &self.manifest_path(&m.name)?,
-                serde_yaml::to_string(m)?.as_bytes(),
-            )?;
+            if write_manifest {
+                atomic_write(
+                    &self.manifest_path(&m.name)?,
+                    serde_yaml::to_string(m)?.as_bytes(),
+                )?;
+            }
             Ok(())
         })();
         recover(&snapshots, result)
@@ -397,7 +413,7 @@ impl App {
             })
             .context("no matching previous version; use history to see retained versions")?;
         m.version = g.version.clone();
-        self.activate(&m, g)?;
+        self.activate(&m, g, true)?;
         println!("{name}: rolled back {} -> {}", state.version, g.version);
         Ok(())
     }

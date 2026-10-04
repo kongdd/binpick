@@ -32,6 +32,7 @@ fn bundled_manifests() {
         client: Client::new(),
     };
     app.init().unwrap();
+    manifest::seed(&app.manifests).unwrap();
     assert_eq!(app.names().unwrap().len(), manifest::BUNDLED.len());
     for &(filename, _) in manifest::BUNDLED {
         let name = Path::new(filename).file_stem().unwrap().to_str().unwrap();
@@ -58,6 +59,38 @@ fn url_source_manifest() {
         m.source.url.as_deref(),
         Some("https://example.test/dist/{version}/file.tar.gz")
     );
+}
+
+#[test]
+fn fs_platforms_and_version_templates() {
+    let m: Manifest = serde_yaml::from_str(include_str!("../manifests/fs.yaml")).unwrap();
+    assert_eq!(m.name, "fs");
+    assert_eq!(m.source.github.as_deref(), Some("kongdd/fs"));
+    assert_eq!(m.executables, ["fs"]);
+    let expected = [
+        ("linux-amd64-gnu", "linux-x86_64", "tar.gz"),
+        ("linux-arm64-gnu", "linux-aarch64", "tar.gz"),
+        ("linux-amd64-musl", "linux-x86_64", "tar.gz"),
+        ("linux-arm64-musl", "linux-aarch64", "tar.gz"),
+        ("darwin-arm64", "macos-aarch64", "tar.gz"),
+        ("windows-amd64", "windows-x86_64", "zip"),
+        ("windows-arm64", "windows-aarch64", "zip"),
+    ];
+    assert_eq!(m.assets.len(), expected.len());
+    for (platform, target, format) in expected {
+        let (selected, asset) = select_asset_for(&m, platform, None).unwrap();
+        assert_eq!(selected, platform);
+        let current_version = m.version.strip_prefix('v').unwrap_or(&m.version);
+        for (tag, version) in [(m.version.as_str(), current_version), ("v0.5.0", "0.5.0")] {
+            assert_eq!(
+                render(&asset.file, tag),
+                format!("fs-{version}-{target}.{format}")
+            );
+        }
+        assert_eq!(asset.format.as_deref(), Some(format));
+        assert_eq!(asset.checksum.as_deref(), Some("SHA256SUMS.txt"));
+    }
+    assert!(select_asset_for(&m, "darwin-amd64", None).is_err());
 }
 
 #[test]

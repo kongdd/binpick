@@ -2,6 +2,9 @@ name: node
 version: v26.10.0
 source:
   url: https://nodejs.org/dist/{tag}/node-{tag}-linux-x64.tar.xz
+checkver:
+  url: https://nodejs.org/dist/index.json
+  json_pointer: /0/version
 assets:
   linux-amd64-gnu:
     file: node-{tag}-linux-x64.tar.xz

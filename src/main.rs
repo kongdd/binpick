@@ -8,7 +8,7 @@ mod storage;
 mod unit_tests;
 
 use crate::package::App;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use directories::BaseDirs;
 use fs2::FileExt;
@@ -19,10 +19,10 @@ use std::{fs, path::PathBuf, time::Duration};
 #[command(version, about = "Install prebuilt executables, not system packages")]
 struct Cli {
     /// Data directory (contains bin, packages, state and default manifests)
-    #[arg(long, env = "BINPICK_ROOT", global = true)]
+    #[arg(long, env = "PREX_ROOT", global = true)]
     root: Option<PathBuf>,
     /// Use and update YAML files in this directory instead of the default
-    #[arg(long, env = "BINPICK_MANIFESTS", global = true)]
+    #[arg(long, env = "PREX_MANIFESTS", global = true)]
     manifests: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
@@ -37,8 +37,15 @@ enum Command {
         #[arg(required = true)]
         names: Vec<String>,
     },
-    /// Refresh YAML versions from GitHub; upgrade packages that are installed
-    Update { names: Vec<String> },
+    /// Discover upstream versions and update YAML only, without installing packages
+    Update {
+        names: Vec<String>,
+        /// Show version changes without writing YAML
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Upgrade installed packages to the versions recorded in YAML
+    Upgrade { names: Vec<String> },
     /// Remove installed executables; keep YAML manifests
     Remove {
         #[arg(required = true)]
@@ -62,7 +69,7 @@ enum Command {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Prevent update from advancing this package
+    /// Prevent update and upgrade from advancing this package
     Pin { name: String },
     /// Allow this package to update again
     Unpin { name: String },
@@ -77,7 +84,7 @@ pub(crate) fn run() -> Result<()> {
         None => BaseDirs::new()
             .context("cannot locate home directory; set --root")?
             .home_dir()
-            .join(".binpick"),
+            .join(".prex"),
     };
     fs::create_dir_all(&root)?;
     let root = fs::canonicalize(root)?;
@@ -88,19 +95,27 @@ pub(crate) fn run() -> Result<()> {
         .write(true)
         .open(root.join(".lock"))?;
     lock.try_lock_exclusive()
-        .context("another binpick process is running")?;
+        .context("another prex process is running")?;
+    let external_manifests = cli.manifests.is_some();
     let manifests = cli.manifests.unwrap_or_else(|| root.join("manifests"));
     let app = App {
         root,
         manifests,
         client: Client::builder()
-            .user_agent(concat!("binpick/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("prex/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(20))
             .timeout(Duration::from_secs(300))
             .build()?,
     };
     app.init()?;
-    app.migrate()?;
+    // An explicitly selected directory is authoritative (e.g. an independent repo).
+    if !external_manifests {
+        manifest::seed(&app.manifests)?;
+    }
+    // YAML maintenance must not migrate or rewrite installed package state.
+    if !matches!(&cli.command, Command::Update { .. }) {
+        app.migrate()?;
+    }
     match cli.command {
         Command::Init => {
             println!("Manifests: {}", app.manifests.display());
@@ -122,26 +137,11 @@ pub(crate) fn run() -> Result<()> {
         Command::Install { names } => {
             for name in names {
                 let m = app.manifest(&name)?;
-                app.install(&m, None)?;
+                app.install(&m)?;
             }
         }
-        Command::Update { names } => {
-            let names = if names.is_empty() {
-                app.names()?
-            } else {
-                names
-            };
-            let mut failed = false;
-            for name in names {
-                if let Err(e) = app.update(&name) {
-                    eprintln!("{name}: {e:#}");
-                    failed = true;
-                }
-            }
-            if failed {
-                bail!("some packages failed to update; their manifests were not advanced");
-            }
-        }
+        Command::Update { names, dry_run } => app.update_many(names, dry_run)?,
+        Command::Upgrade { names } => app.upgrade_many(names)?,
         Command::Remove { names } => {
             for name in names {
                 app.remove(&name)?;
